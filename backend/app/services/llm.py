@@ -93,3 +93,21 @@ def wrap_document(text: str, url: str | None = None) -> str:
 
 def dump(model: BaseModel) -> dict:
     return json.loads(model.model_dump_json())
+
+
+def test_connection() -> dict:
+    """One tiny real call (about 10 tokens) so a wrong key or model id shows up as a clear message instead of a silent skip."""
+    st = status()
+    if not st["connected"]:
+        return {"configured": False, "ok": False, "detail": st["reason"]}
+    s = get_settings()
+    try:
+        import anthropic
+
+        kwargs: dict[str, Any] = {"api_key": s.anthropic_api_key, "max_retries": 1, "timeout": 30.0}
+        if s.anthropic_base_url:
+            kwargs["base_url"] = s.anthropic_base_url
+        r = anthropic.Anthropic(**kwargs).messages.create(model=s.claude_model, max_tokens=8, messages=[{"role": "user", "content": "Reply with OK"}])
+        return {"configured": True, "ok": True, "detail": f"Model {s.claude_model} answered.", "model": s.claude_model, "tokens": getattr(r.usage, "output_tokens", None)}
+    except Exception as e:  # noqa: BLE001 - surface the provider's own message
+        return {"configured": True, "ok": False, "detail": f"{type(e).__name__}: {e}"[:400]}

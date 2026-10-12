@@ -189,9 +189,16 @@ def detect_events(ctx: JobContext) -> dict:
     out = {"pages": 0, "new_items": 0, "price_changes": 0, "offer_events": 0, "errors": []}
     with session_scope() as db:
         ids = [r[0] for r in db.execute(select(Source.id).where(Source.active.is_(True), Source.kind == "competitor_page"))]
+        fetched = 0
         for sid in ids:
             src = db.get(Source, sid)
             snap = _latest_ok_snapshot(db, sid)
+            if snap is None and src.last_attempt_at is None and fetched < 80:  # discovered today: collect it now so the baseline exists immediately
+                snap, _ = fetcher.fetch_source(db, src)
+                fetched += 1
+                db.commit()
+                if snap.outcome != "ok":
+                    continue
             if snap is None or (snap.extraction_notes or {}).get("events_done"):
                 continue
             try:
@@ -309,8 +316,10 @@ def generate_briefs(ctx: JobContext) -> dict:
 
     week = monday_of(today_local())
     out = {"week_start": week.isoformat(), "briefs": {}, "errors": []}
+    if not llm_mod.available():
+        return {"_status": "skipped", "not_connected": llm_mod.status().get("reason"), "week_start": week.isoformat()}
     with session_scope() as db:
-        llm = llm_mod.LLM(db, ctx.run_id) if llm_mod.available() else None
+        llm = llm_mod.LLM(db, ctx.run_id)
         for scope in B.SCOPES:
             try:
                 b = B.generate_brief(db, scope, week, llm, ctx.run_id)
@@ -321,9 +330,6 @@ def generate_briefs(ctx: JobContext) -> dict:
             except Exception as e:  # noqa: BLE001
                 db.rollback()
                 out["errors"].append({"scope": scope, "error": f"{type(e).__name__}: {e}"[:200]})
-    if llm is None:
-        out["_status"] = "skipped"
-        out["not_connected"] = llm_mod.status().get("reason")
     return out
 
 

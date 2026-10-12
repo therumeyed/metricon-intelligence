@@ -27,6 +27,9 @@ function Jobs() {
   const diag = useFetch(`/api/admin/diagnostics`);
   const [msg, setMsg] = useState("");
   const [open, setOpen] = useState<number | null>(null);
+  const [test, setTest] = useState<any>(null);
+  const [testing, setTesting] = useState(false);
+  const runTest = async () => { setTesting(true); try { setTest(await api.post("/api/admin/test-connections")); } catch (e) { setTest({ error: (e as Error).message }); } finally { setTesting(false); } };
   const run = async (name: string, params: any = {}) => { try { const r = await api.post("/api/admin/jobs/run", { name, params }); setMsg(`Queued job ${r.job_id}`); setTimeout(d.reload, 1500); } catch (e) { setMsg((e as Error).message); } };
   if (!d.data) return d.error ? <ErrorBox message={d.error} /> : <Loading />;
   return (
@@ -36,6 +39,17 @@ function Jobs() {
         <div className="tile"><div className="label">Google Trends (DataForSEO)</div><div className="value" style={{ fontSize: 17 }}>{diag.data.dataforseo.connected ? "Connected" : "Not connected"}</div><div className="sub">{diag.data.trend_capabilities.filter((c: any) => c.supported).length} of {diag.data.trend_capabilities.length} geographies verified</div></div>
         <div className="tile"><div className="label">Bot-protected sources</div><div className="value" style={{ fontSize: 17 }}>{diag.data.sources.filter((s: any) => s.last_outcome === "blocked").length}</div><div className="sub">Blocked by a bot challenge (never bypassed). Allowlisting header configured: {diag.data.extra_header_allowlist_configured ? "yes" : "no"}</div></div>
       </div>}
+      <section className="card">
+        <div className="row between"><h3>Connections</h3><button className="btn sm primary" onClick={runTest} disabled={testing}>{testing ? "Testing…" : "Test Anthropic and DataForSEO now"}</button></div>
+        <p className="small muted" style={{ margin: "6px 0" }}>Makes one tiny real call to each provider, so a wrong key, wrong model id or missing variable shows up here with the provider’s own message.</p>
+        {test?.error && <Banner tone="bad">{test.error}</Banner>}
+        {test?.anthropic && <div className="stack small">
+          <div><Chip tone={test.anthropic.ok ? "good" : "bad"}>Anthropic: {test.anthropic.ok ? "working" : "not working"}</Chip> {test.anthropic.detail}</div>
+          <div><Chip tone={test.dataforseo.ok ? "good" : "bad"}>DataForSEO: {test.dataforseo.ok ? "working" : "not working"}</Chip> {test.dataforseo.detail}</div>
+          <div className="muted">Variables set on the web service: {Object.entries(test.environment_seen_by_web_service).map(([k, v]) => `${k} ${v ? "✓" : "✗ missing"}`).join(" · ")}</div>
+          <div className="muted">{test.note}</div></div>}
+        {(() => { const last = d.data.runs.find((r: any) => r.trigger === "schedule" && r.result?.connections); return last ? <p className="small" style={{ margin: "8px 0 0" }}>The last <b>scheduled</b> run (cron service, {last.name}, {fmtDateTime(last.finished_at)}) saw: AI <Chip tone={last.result.connections.ai ? "good" : "bad"}>{last.result.connections.ai ? "connected" : "not connected"}</Chip> Trends <Chip tone={last.result.connections.trends ? "good" : "bad"}>{last.result.connections.trends ? "connected" : "not connected"}</Chip></p> : null; })()}
+      </section>
       <section className="card">
         <div className="row between"><h3>Run a job now</h3><span className="small muted">{msg}</span></div>
         <div className="row" style={{ marginTop: 8 }}>{d.data.available.filter((n: string) => n !== "import_gsc").map((n: string) => <button key={n} className="btn sm" onClick={() => run(n)}>{n.replace(/_/g, " ")}</button>)}</div>
@@ -174,7 +188,7 @@ function Trends() {
       <section className="card"><div className="row between"><h3>Provider capability tests</h3><button className="btn sm" onClick={async () => { await api.post("/api/admin/jobs/run", { name: "trends_capability", params: { cities: true } }); setMsg("Capability test queued (spends a few paid requests)"); }}>Run capability test (incl. cities)</button></div>
         <p className="small muted">{msg} Tests resolve each location from the provider’s current catalogue and check a generic home-building query returns usable data.</p>
         <div className="tablewrap"><table><thead><tr><th>Geography</th><th>Tested</th><th>Supported</th><th>Coverage</th><th>Detail</th></tr></thead><tbody>{caps.data?.map((c: any) => <tr key={c.geo}><td>{c.geo}</td><td>{c.tested ? fmtDate(c.tested_at) : "Not tested"}</td><td>{c.supported == null ? "–" : c.supported ? "Yes" : "No"}</td><td>{c.coverage ?? "–"}</td><td className="small muted">{c.detail?.reason ?? ""}</td></tr>)}</tbody></table></div></section>
-      <section className="card"><h3>Refresh plans</h3><p className="small muted">Each plan is one comparable request (≤5 keywords, one geography). Only pilot plans start active; switch more on as budget allows.</p>
+      <section className="card"><div className="row between"><h3>Refresh plans</h3><button className="btn sm" onClick={async () => { const r = await api.post("/api/admin/trend-plans/activate-all"); setMsg(`Activated ${r.activated} plans. They are fetched on the next weekly run, or run “refresh trends” under Jobs now.`); plans.reload(); }}>Activate all plans</button></div><p className="small muted">Each plan is one comparable request (≤5 keywords, one geography). Only the 8 pilot plans (Australia and Victoria) start active, so NSW, QLD and SA stay empty until you switch them on. All 61 plans cost roughly $0.67 a week at DataForSEO’s list price.</p>
         <div className="tablewrap" style={{ maxHeight: 360, overflow: "auto" }}><table><thead><tr><th>Plan</th><th>Geo</th><th>Keywords</th><th>Pilot</th><th>Active</th></tr></thead><tbody>
           {plans.data?.map((p: any) => <tr key={p.id}><td className="small">{p.key}</td><td>{p.geo}</td><td className="small">{p.keywords.join(", ")}</td><td>{p.pilot ? "Yes" : ""}</td><td><input type="checkbox" checked={p.active} onChange={async (e) => { await api.patch(`/api/admin/trend-plans/${p.id}`, { active: e.target.checked }); plans.reload(); }} /></td></tr>)}</tbody></table></div></section>
       <section className="card"><h3>Proposed subthemes to review</h3>

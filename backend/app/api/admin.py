@@ -638,6 +638,41 @@ def audit_list(limit: int = 100, db: Session = Depends(get_db)):
             for a in db.scalars(select(AuditLog).order_by(AuditLog.id.desc()).limit(min(limit, 500)))]
 
 
+@router.post("/test-connections")
+def test_connections():
+    """Presence of each setting (names only, never values) plus one real, nearly free call per provider."""
+    import os
+
+    from ..services.trends.provider import DataForSEOTrends, ProviderError
+
+    s = get_settings()
+    present = {k: bool(os.environ.get(k, "").strip()) for k in ("ANTHROPIC_API_KEY", "CLAUDE_MODEL", "DATAFORSEO_LOGIN", "DATAFORSEO_PASSWORD")}
+    out = {"environment_seen_by_web_service": present, "anthropic": llm_mod.test_connection()}
+    if not s.dataforseo_ready:
+        out["dataforseo"] = {"configured": False, "ok": False, "detail": "DATAFORSEO_LOGIN and/or DATAFORSEO_PASSWORD are empty on the web service"}
+    else:
+        try:
+            rows = DataForSEOTrends().locations("au")  # the locations list is a free call
+            au = next((r for r in rows if (r.get("location_name") or "").lower() == "australia"), None)
+            out["dataforseo"] = {"configured": True, "ok": True, "detail": f"Login accepted. {len(rows)} Australian locations in the Google Trends catalogue" + ("" if au else " (Australia itself not listed)"),
+                                 "locations": len(rows)}
+        except ProviderError as e:
+            out["dataforseo"] = {"configured": True, "ok": False, "detail": str(e)[:300]}
+    out["note"] = "This tests the web service only. The hourly cron service has its own environment: the same four variables must be set there too."
+    return out
+
+
+@router.post("/trend-plans/activate-all")
+def plans_activate_all(db: Session = Depends(get_db), me: AppUser = Depends(auth.current_user)):
+    n = 0
+    for p in db.scalars(select(TrendPlan).where(TrendPlan.active.is_(False))):
+        p.active = True
+        n += 1
+    audit(db, me, "trend_plan.activate_all", "trend_plan", None, after={"activated": n})
+    db.commit()
+    return {"activated": n}
+
+
 @router.get("/diagnostics")
 def diagnostics(db: Session = Depends(get_db)):
     s = get_settings()

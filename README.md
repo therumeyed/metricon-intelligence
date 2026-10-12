@@ -78,6 +78,16 @@ Render cron is UTC only. The cron fires **every hour** and `dispatch` decides wh
 5. In Admin: upload the GSC workbook (Search data), review Sources, run **Trends -> capability test** once credentials are in, and switch on more Trends plans as budget allows.
 6. Optional Playwright rendering for JavaScript-only sites: build with `--build-arg INSTALL_BROWSER=1`, set `ALLOW_BROWSER_FETCH=true` and flag the source `fetch_mode=browser`. It reports bot challenges; it never tries to defeat them.
 
+## If a module says "not connected"
+
+The web service and the hourly cron service are separate processes with **separate environment variables**. Set these four on **both** (Render → service → Environment):
+
+`ANTHROPIC_API_KEY`, `CLAUDE_MODEL` (e.g. `claude-sonnet-5-5`), `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD`
+
+Notes: Blueprint variables marked `sync: false` are only prompted for at first creation; if they were blank then, they stay blank until you edit them in the dashboard (saving redeploys the service). Leading/trailing spaces are ignored. Then open **Admin → Jobs → "Test Anthropic and DataForSEO now"**: it makes one tiny real call to each provider and shows the provider's own error, which variables the web service can see, and what the last scheduled (cron) run saw.
+
+After connecting, the schedules wait for their next slot. To populate straight away, run these under **Admin → Jobs** in order: `trends capability` (once), `refresh trends`, `extract offers` (re-reads existing offers with the model; the change is treated as a re-baseline, not as news), `generate briefs`. Under **Admin → Trends & discovery**, "Activate all plans" turns on NSW, QLD and SA; only the 8 pilot plans (Australia and Victoria) are active by default.
+
 ## Administering sources and the roster
 
 Everything is data, not code (Admin area):

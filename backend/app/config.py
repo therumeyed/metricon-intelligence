@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -56,6 +57,11 @@ class Settings(BaseSettings):
 
     seed_admin_email: str = ""
     seed_admin_password: str = ""
+
+    @field_validator("anthropic_api_key", "claude_model", "dataforseo_login", "dataforseo_password", "anthropic_base_url", "fetch_contact", mode="before")
+    @classmethod
+    def _strip(cls, v):
+        return v.strip() if isinstance(v, str) else v  # a pasted key often carries a trailing space or newline
 
     @property
     def anthropic_ready(self) -> bool:

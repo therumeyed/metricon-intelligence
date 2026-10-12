@@ -286,8 +286,23 @@ def refresh_status(db: Session, offer: Offer, now: datetime | None = None) -> No
         offer.status, offer.status_reason = "advertised", "Shown on a current official page at last successful check"
     elif absent_after_crawl and not unknown and absent_after_crawl == len(page_sources):
         offer.status = "no_longer_observed"
-        offer.status_reason = "Last successful crawl of every page that listed it no longer shows it (not confirmed withdrawn)"
+        offer.status_reason = ("Replaced by a fuller AI re-read of the same page; the earlier rules-based entry was approximate" if superseded_by_ai(db, offer)
+                               else "Last successful crawl of every page that listed it no longer shows it (not confirmed withdrawn)")
     # otherwise: leave the previous status untouched (e.g. fetch failures)
+
+
+def superseded_by_ai(db: Session, offer: Offer) -> bool:
+    """A rules-based entry whose page has since been re-read by the model: the page didn't change, our reading of it did."""
+    if not offer.versions or offer.versions[-1].extraction_method != "rules":
+        return False
+    for os_ in offer.sources:
+        if os_.role not in ("listing", "detail"):
+            continue
+        snap = db.scalar(select(SourceSnapshot).where(SourceSnapshot.source_id == os_.source_id, SourceSnapshot.outcome == "ok",
+                                                      SourceSnapshot.extraction_notes.is_not(None)).order_by(SourceSnapshot.id.desc()).limit(1))
+        if snap is not None and (snap.extraction_notes or {}).get("method") == "llm":
+            return True
+    return False
 
 
 def freshness(offer: Offer, now: datetime | None = None) -> dict:
@@ -374,7 +389,8 @@ def upsert_offer(db: Session, *, brand: Brand, source: Source, snap: SourceSnaps
             if d["dates"].get("evidence"):
                 ev.append({"field": "dates", "excerpt": d["dates"]["evidence"], "snapshot_id": snap.id, "source_url": snap.final_url or source.url})
             # first look at a page that elaborates an existing campaign is an enrichment baseline, not a market change
-            enrichment = bool(last is not None and first_link_here and role == "detail")
+            method_switch = bool(last is not None and last.extraction_method != method)  # rules -> AI re-read, not a market change
+            enrichment = bool(last is not None and first_link_here and role == "detail") or method_switch
             ver = OfferVersion(offer_id=offer.id, version_no=(last.version_no + 1) if last else 1, fields_hash=h, fields=d, evidence=ev,
                                unresolved=list(dict.fromkeys(d.get("unresolved", []) + evidence_notes)),
                                diff=[] if enrichment else diff_fields(material_fields(last.fields) if last else None, material),
@@ -468,12 +484,14 @@ def process_source(db: Session, source: Source, snap: SourceSnapshot, llm: LLM |
     prior_snaps = db.scalars(select(SourceSnapshot).where(SourceSnapshot.source_id == source.id, SourceSnapshot.id < snap.id,
                                                           SourceSnapshot.outcome == "ok").order_by(SourceSnapshot.id.desc())).all()
     prior_extracted = next((p for p in prior_snaps if (p.extraction_notes or {}).get("extracted")), None)
-    is_baseline = prior_extracted is None
+    prior_method = (prior_extracted.extraction_notes or {}).get("method") if prior_extracted else None
+    upgrade = bool(prior_extracted and llm is not None and prior_method == "rules")  # model connected since the last (rules) extraction
+    is_baseline = prior_extracted is None or upgrade
     prior_offers = _offers_on_source(db, source)
     result = {"source": source.url, "extracted": False, "offers": 0, "baseline": is_baseline}
 
     # --- unchanged promo window => nothing to extract; the offers we know are still shown
-    if prior_extracted and (prior_extracted.extraction_notes or {}).get("material_hash") == mat_hash:
+    if prior_extracted and not upgrade and (prior_extracted.extraction_notes or {}).get("material_hash") == mat_hash:
         seen_ids = set((prior_extracted.extraction_notes or {}).get("seen_offer_ids", []))
         for o in prior_offers:
             if o.id in seen_ids:
@@ -481,7 +499,7 @@ def process_source(db: Session, source: Source, snap: SourceSnapshot, llm: LLM |
                 o.last_observed_at = o.last_success_check_at = now
                 o.last_failed_attempt_at, o.last_failure_reason = None, None
                 rebuild_derived(db, o, now)
-        snap.extraction_notes = {"extracted": True, "material_hash": mat_hash, "seen_offer_ids": sorted(seen_ids), "skipped": "promo window unchanged"}
+        snap.extraction_notes = {"extracted": True, "material_hash": mat_hash, "seen_offer_ids": sorted(seen_ids), "method": prior_method, "skipped": "promo window unchanged"}
         result.update(extracted=True, skipped_unchanged=True, offers=len(seen_ids))
         return result
 

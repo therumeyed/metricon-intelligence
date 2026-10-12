@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from ..models import Brand, CompetitorEvent, Offer, Source, SourceSnapshot, TrackedItem
 from ..timeutil import now_utc
 from . import fetcher
+from .offers import pipeline
 from .offers.verify import money_values
 
 ITEM_PATTERNS = {
@@ -148,7 +149,7 @@ def events_from_offers(db: Session, since: datetime) -> int:
                         before={d["field"]: d["before"] for d in v.diff}, after={d["field"]: d["after"] for d in v.diff}, evidence=v.evidence[:4],
                         summary="Field-level differences between consecutive extracted versions.", state=src.state if src else None):
                     n += 1
-        if o.status == "no_longer_observed" and not o.is_baseline or (o.status == "no_longer_observed" and o.versions):
+        if o.status == "no_longer_observed" and o.versions and not pipeline.superseded_by_ai(db, o):
             day = (o.last_observed_at or now_utc()).date().isoformat()
             if emit(db, key=f"offer:{o.campaign_id}:gone:{day}", brand=brand, event_type="offer_no_longer_observed", source=src, offer=o,
                     title=f"No longer observed: {o.title}", theme="costs-affordability", state=src.state if src else None,

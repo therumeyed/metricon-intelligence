@@ -19,6 +19,7 @@ from typing import Any, Callable
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from ..config import get_settings
 from ..db import get_engine, session_factory, session_scope
 from ..models import JobRun
 from ..timeutil import app_tz, now_utc
@@ -104,6 +105,9 @@ def execute(run_id: int) -> dict:
         try:
             result = fn(ctx) or {}
             status = result.pop("_status", None) or ("partial" if result.get("errors") else "succeeded")
+            from . import llm as _llm
+
+            result["connections"] = {"ai": _llm.available(), "trends": get_settings().dataforseo_ready}  # what THIS process (web or cron) can see
             err = None
         except Exception as e:  # noqa: BLE001 - a job failure is recorded, never raised into the scheduler
             log.exception("job %s failed", name)
