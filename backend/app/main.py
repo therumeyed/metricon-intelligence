@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import auth
+from . import jobs as _jobs  # noqa: F401  (registers every job so the Admin screen can list and start them)
 from .api import admin, auth_routes, reader
 from .config import get_settings
 from .db import session_scope
