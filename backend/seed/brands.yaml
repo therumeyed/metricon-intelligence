@@ -1,0 +1,115 @@
+# Launch roster (brief s3): 16 distinct brands, 22 brand/state assignments.
+# Editable in the admin UI afterwards; this file only creates what is missing.
+# Numeric positions that were pasted with the original competitor list are intentionally NOT imported.
+states:
+  VIC: {name: Victoria, main_city: Melbourne}
+  NSW: {name: New South Wales, main_city: Sydney}
+  QLD: {name: Queensland, main_city: Brisbane}
+  SA: {name: South Australia, main_city: Adelaide}
+
+brands:
+  - slug: metricon
+    name: Metricon
+    is_own: true
+    domains: [metricon.com.au]
+    states: [VIC, NSW, QLD, SA]
+    aliases:
+      - {alias: metricon, kind: search_term}
+      - {alias: metricon homes, kind: name_variant}
+  - slug: arden-homes
+    name: Arden Homes
+    domains: [ardenhomes.com.au]
+    states: [VIC]
+    aliases:
+      - {alias: arden homes, kind: search_term}
+  - slug: gj-gardner
+    name: G.J. Gardner Homes
+    domains: [gjgardner.com.au]
+    states: [VIC, NSW, QLD]
+    notes: Franchise network. Offers can be franchise- or area-specific, so applicability is recorded per offer.
+    aliases:
+      - {alias: gj gardner homes, kind: search_term}
+      - {alias: gj gardner, kind: search_term}
+      - {alias: g.j. gardner homes, kind: name_variant}
+      - {alias: g.j. gardner, kind: name_variant}
+      - {alias: gjg homes, kind: name_variant}
+  - slug: carlisle-homes
+    name: Carlisle Homes
+    domains: [carlislehomes.com.au]
+    states: [VIC]
+    aliases:
+      - {alias: carlisle homes, kind: search_term}
+  - slug: boutique-homes
+    name: Boutique Homes
+    domains: [boutiquehomes.com.au]
+    states: [VIC]
+    aliases:
+      - {alias: boutique homes, kind: search_term}
+  - slug: senka-homes
+    name: Senka Homes
+    domains: [senkahomes.com.au]
+    states: [VIC]
+    aliases:
+      - {alias: senka homes, kind: search_term}
+  - slug: mimosa-homes
+    name: Mimosa Homes
+    domains: [mimosahomes.com.au]
+    states: [VIC]
+    aliases:
+      - {alias: mimosa homes, kind: search_term}
+  - slug: eden-brae-homes
+    name: Eden Brae Homes
+    domains: [edenbrae.com.au]
+    states: [NSW]
+    aliases:
+      - {alias: eden brae homes, kind: search_term}
+  - slug: mcdonald-jones-homes
+    name: McDonald Jones Homes
+    domains: [mcdonaldjoneshomes.com.au, mjh.com.au]
+    states: [NSW]
+    aliases:
+      - {alias: mcdonald jones homes, kind: search_term}
+      - {alias: mjh homes, kind: name_variant}
+  - slug: clarendon-homes
+    name: Clarendon Homes
+    domains: [clarendon.com.au, clarendonhomes.com.au]
+    states: [NSW, QLD]
+    aliases:
+      - {alias: clarendon homes, kind: search_term}
+  - slug: brighton-homes
+    name: Brighton Homes
+    domains: [brightonhomes.net.au]
+    states: [QLD]
+    aliases:
+      - {alias: brighton homes, kind: search_term}
+  - slug: plantation-homes
+    name: Plantation Homes
+    domains: [plantationhomes.com.au]
+    states: [QLD]
+    aliases:
+      - {alias: plantation homes, kind: search_term}
+  - slug: fairmont-homes
+    name: Fairmont Homes
+    domains: [fairmonthomes.com.au, fairland.com.au]
+    states: [SA]
+    aliases:
+      - {alias: fairmont homes, kind: search_term}
+  - slug: hickinbotham
+    name: Hickinbotham
+    domains: [hickinbotham.com.au]
+    states: [SA]
+    aliases:
+      - {alias: hickinbotham homes, kind: search_term}
+      - {alias: hickinbotham, kind: name_variant}
+  - slug: weeks-homes
+    name: Weeks Homes
+    domains: [weekshomes.com.au]
+    states: [SA]
+    aliases:
+      - {alias: weeks homes, kind: search_term}
+  - slug: rossdale-homes
+    name: Rossdale Homes
+    domains: [rossdalehomes.com.au]
+    states: [SA]
+    aliases:
+      - {alias: rossdale homes, kind: search_term}

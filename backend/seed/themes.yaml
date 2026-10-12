@@ -1,0 +1,75 @@
+# Starting taxonomy (brief s5). Rules are cheap deterministic mappings applied to GSC query text,
+# lowest priority number wins. Anything unmatched stays unmapped until reviewed (or batch-classified by Claude).
+# 'seed_keywords' are the brief's candidate terms; they join representative GSC head terms as tracked keywords.
+exclude_patterns:   # off-topic: rentals, decorating/maintenance how-tos, jobs, cleaning, unrelated property noise
+  - '\brent(al|als|ing|er|ers)?\b(?!.*(to buy|to own))'
+  - '\b(paint|painting|curtains?|blinds?|cleaning|cleaners?|plumber|electrician|jobs?|careers?|salary|recruitment)\b'
+  - '\b(for sale by owner|real estate agents?|realestate|domain\.com|buy a house to flip)\b'
+  - '\b(lego|minecraft|sims|bloxburg|roblox|game)\b'
+
+themes:
+  - slug: knockdown-rebuild
+    name: Knockdown rebuild
+    priority: 10
+    rules: ['knock ?down|knockdown|rebuild|demolish|demolition|teardown|tear down']
+    seed_keywords: [knockdown rebuild, knock down rebuild, knock down rebuild cost]
+  - slug: dual-occupancy-duplex
+    name: Dual occupancy and duplex
+    priority: 11
+    rules: ['dual[- ]?(occupancy|key|living)|duplex|two homes on one|semi[- ]detached|secondary dwelling|granny flat']
+    seed_keywords: [dual occupancy, duplex builders, duplex designs, dual occupancy homes]
+  - slug: townhouses
+    name: Townhouses
+    priority: 12
+    rules: ['town ?(house|home)s?|townhomes?|terrace']
+    seed_keywords: [townhouse builders, townhouse designs, townhouse prices]
+  - slug: acreage
+    name: Acreage
+    priority: 13
+    rules: ['acreage|rural (home|house|block)|country (home|house|living)|hobby farm|lifestyle (block|property)']
+    seed_keywords: [acreage homes, acreage home designs]
+  - slug: first-home-buyers-investors
+    name: First-home buyers and investors
+    priority: 20
+    rules: ['first[- ]home|first time (home )?buyer|fhb|\bfhog\b|home buyer grant|investor|investment (property|home)|negative gearing|rent to buy']
+    seed_keywords: [first home buyer, first home buyer grant, investment property builders]
+  - slug: display-homes
+    name: Display homes
+    priority: 30
+    rules: ['display (home|house|village|centre|center|suite)s?|show ?homes?|open for inspection|display villages?']
+    seed_keywords: [display homes, display homes near me, display villages]
+  - slug: house-and-land
+    name: House and land
+    priority: 31
+    rules: ['(house|home)s? (and|&|\+) land|land (and|&) (house|home)|\bh ?& ?l\b|\bpackages?\b|\bestates?\b|land (for sale|releases?)|turnkey']
+    seed_keywords: [house and land packages, house and land, house and land estates]
+  - slug: costs-affordability
+    name: Costs and affordability
+    priority: 40
+    rules: ['\b(cost|costs|price|prices|pricing|cheap|cheapest|affordable|budget|how much|per square metre|per sqm|inclusions?|upgrades?|quote|fixed price)\b']
+    seed_keywords: [cost to build a house, house designs and prices, new home prices, build cost per square metre]
+  - slug: build-process-timelines
+    name: Build process and timelines
+    priority: 45
+    rules: ['(build|building|construction) (process|time|timeline|stages?|steps)|how long (does|to|will)|time to build|construction stages|delays?|building contract|\bsteps to build']
+    seed_keywords: [building process, how long to build a house, construction stages]
+  - slug: styles-features
+    name: Styles and features
+    priority: 50
+    rules: ['hamptons?|farmhouse|facades?|kitchens?|coastal|contemporary|modern|luxury|scandi|mediterranean|japandi|heritage|colonial|bathroom|alfresco|butler|walk[- ]in|outdoor living|vastu|sustainab|solar|energy efficient|smart home|style']
+    seed_keywords: [modern farmhouse, hamptons style homes, house facades, vastu home design]
+  - slug: layouts-blocks
+    name: Layouts and blocks
+    priority: 55
+    rules: ['\b[2-9] ?(bed|bedroom)s?\b|\b(single|double|two|one|2|1)[- ]?(storey|story|level)s?\b|split level|narrow|small (block|lot|land)|corner (block|lot)|sloping|slope|battle ?axe|multi[- ]?gen|\bwide (frontage|block)|frontage|\b\d{2,3} ?sqm|\b\d{3} ?m2|lot size|rumpus|\bstudy\b']
+    seed_keywords: [4 bedroom house designs, single storey house designs, narrow block house designs, sloping block house designs]
+  - slug: designs-floorplans
+    name: Designs and floorplans
+    priority: 60
+    rules: ['(house|home)s? (designs?|plans?)|floor ?plans?|\bdesigns?\b|home design ideas|blueprints?']
+    seed_keywords: [house designs, house plans, floor plans, home designs]
+  - slug: home-builders
+    name: Home builders
+    priority: 70
+    rules: ['\b(home|house|new home|residential|custom|volume|luxury|local|best|top|large|big)?\s*(builders?|building companies|construction companies)\b|\bbuilder\b|who builds|custom home|volume builder', '\bbuild(ing)? (a |my |our |new |your )?(new )?(home|house)s?\b|\bnew (build )?(home|house)s?\b|home construction|house construction|\bnew build\b|(home|house) building|house build\b']
+    seed_keywords: [home builders, custom home builders, volume builders, best home builders]

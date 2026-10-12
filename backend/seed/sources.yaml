@@ -1,0 +1,45 @@
+# Source registry seed (brief s6, s17). Starting points only: every URL is re-verified by `verify-sources`
+# and the outcome is stored on the source row. Admins can add/disable sources in the UI without code changes.
+# kinds: offer_listing | offer_detail | terms | competitor_page | discovery_seed
+# `context` records the regional selection a page represents; it never widens an offer's applicability by itself.
+sources:
+  # ---- Metricon (own). The offers pages sit behind an AWS WAF challenge for non-browser clients; see README.
+  - {brand: metricon, kind: offer_listing, url: "https://www.metricon.com.au/latest-offers/default", context: {region: default, note: "no region selected - national landing page"}}
+  - {brand: metricon, kind: offer_listing, url: "https://www.metricon.com.au/latest-offers/melbourne", state: VIC, context: {region: melbourne, scope_level: metro, area: Melbourne}}
+  - {brand: metricon, kind: offer_listing, url: "https://www.metricon.com.au/latest-offers/vic-regional", state: VIC, context: {region: vic-regional, scope_level: build_region, area: Regional Victoria}}
+  - {brand: metricon, kind: offer_listing, url: "https://www.metricon.com.au/latest-offers/sydney", state: NSW, context: {region: sydney, scope_level: metro, area: Sydney}}
+  - {brand: metricon, kind: offer_listing, url: "https://www.metricon.com.au/latest-offers/northern-nsw", state: NSW, context: {region: northern-nsw, scope_level: build_region, area: Northern NSW}}
+  - {brand: metricon, kind: offer_listing, url: "https://www.metricon.com.au/latest-offers/southern-nsw", state: NSW, context: {region: southern-nsw, scope_level: build_region, area: Southern NSW}}
+  - {brand: metricon, kind: offer_listing, url: "https://www.metricon.com.au/latest-offers/queensland", state: QLD, context: {region: queensland, scope_level: state, area: Queensland}}
+  - {brand: metricon, kind: offer_listing, url: "https://www.metricon.com.au/latest-offers/south-australia", state: SA, context: {region: south-australia, scope_level: state, area: South Australia}}
+  - {brand: metricon, kind: terms, url: "https://www.metricon.com.au/terms-and-conditions/"}
+
+  # ---- VIC
+  - {brand: arden-homes, kind: offer_listing, url: "https://ardenhomes.com.au/offers", state: VIC, context: {scope_level: state, area: Victoria}}
+  - {brand: carlisle-homes, kind: offer_listing, url: "https://www.carlislehomes.com.au/offers/", state: VIC, context: {scope_level: state, area: Victoria}}
+  - {brand: carlisle-homes, kind: terms, url: "https://www.carlislehomes.com.au/disclaimer/", state: VIC}
+  - {brand: senka-homes, kind: offer_listing, url: "https://www.senkahomes.com.au/new-home-builder-offers-melbourne/", state: VIC, context: {scope_level: metro, area: Melbourne}}
+  - {brand: mimosa-homes, kind: offer_listing, url: "https://www.mimosahomes.com.au/current-offers-m-collection/", state: VIC, context: {scope_level: state, area: Victoria, range: M Collection}}
+  - {brand: mimosa-homes, kind: offer_listing, url: "https://www.mimosahomes.com.au/current-offers-v-collection/", state: VIC, context: {scope_level: state, area: Victoria, range: V Collection}}
+  - {brand: boutique-homes, kind: discovery_seed, url: "https://www.boutiquehomes.com.au/", state: VIC, notes: "Homepage returned a 212-byte shell in the first probe (JS/redirect). Needs browser fetch or a better entry URL."}
+  - {brand: gj-gardner, kind: discovery_seed, url: "https://www.gjgardner.com.au/", notes: "Franchise network - find offer pages per franchise/area; /offers 404s."}
+
+  # ---- NSW
+  - {brand: mcdonald-jones-homes, kind: discovery_seed, url: "https://www.mcdonaldjoneshomes.com.au/", state: NSW}
+  - {brand: clarendon-homes, kind: discovery_seed, url: "https://www.clarendon.com.au/", notes: "Covers NSW and QLD; offer pages must state the state."}
+  - {brand: eden-brae-homes, kind: discovery_seed, url: "https://www.edenbrae.com.au/", state: NSW, notes: "Connection reset from the first probe environment."}
+
+  # ---- QLD
+  - {brand: brighton-homes, kind: offer_listing, url: "https://www.brightonhomes.net.au/offers", state: QLD, context: {note: "Region selector (North/South/West Brisbane, Gold Coast, Tweed Coast ...) - the page does not imply one state; scope must be read from the offer"}}
+  - {brand: brighton-homes, kind: terms, url: "https://www.brightonhomes.net.au/offer-terms-and-conditions", state: QLD}
+  - {brand: plantation-homes, kind: offer_listing, url: "https://www.plantationhomes.com.au/promotions", state: QLD}
+
+  # ---- SA
+  - {brand: fairmont-homes, kind: offer_listing, url: "https://fairmonthomes.com.au/why-fairmont/current-offers", state: SA, context: {scope_level: state, area: South Australia}}
+  - {brand: hickinbotham, kind: offer_listing, url: "https://hickinbotham.com.au/buying-guide/promotions-and-offers/", state: SA, context: {scope_level: state, area: South Australia}}
+  - {brand: weeks-homes, kind: discovery_seed, url: "https://weekshomes.com.au/", state: SA, notes: "TLS hostname mismatch from the first probe environment."}
+  - {brand: rossdale-homes, kind: discovery_seed, url: "https://www.rossdalehomes.com.au/", state: SA, notes: "HTTP 403 from the first probe environment."}
+
+  # ---- Competitor activity pages (designs / packages / display homes). Starter set; admins extend.
+  - {brand: carlisle-homes, kind: competitor_page, url: "https://www.carlislehomes.com.au/offers/", state: VIC, context: {item_type: display}, notes: "Display-home list sits on the offers page."}
+  - {brand: hickinbotham, kind: competitor_page, url: "https://hickinbotham.com.au/buying-guide/promotions-and-offers/", state: SA, context: {item_type: display}}
