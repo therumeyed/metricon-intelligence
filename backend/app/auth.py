@@ -53,7 +53,16 @@ def csrf_guard(request: Request) -> None:
         raise HTTPException(403, "Missing request header")
 
 
+def open_access_user() -> AppUser:
+    """Stand-in identity when login is switched off. Transient (never saved); audit rows record user_id=NULL."""
+    return AppUser(id=None, email="open-access", name="Open access", role="admin", active=True, password_hash="")
+
+
 def current_user(request: Request, db: Session = Depends(get_db)) -> AppUser:
+    from .config import get_settings
+
+    if not get_settings().require_login:
+        return open_access_user()
     uid = request.session.get("uid")
     if not uid:
         raise HTTPException(401, "Sign in required")

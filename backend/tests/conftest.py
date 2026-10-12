@@ -6,6 +6,7 @@ import os
 
 os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", "postgresql+psycopg://metricon:metricon@localhost:5433/metricon_test")
 os.environ["SESSION_SECRET"] = "test-secret"
+os.environ["REQUIRE_LOGIN"] = "true"  # most tests cover the protected mode; open mode has its own test
 os.environ.pop("ANTHROPIC_API_KEY", None)
 os.environ.pop("DATAFORSEO_LOGIN", None)
 os.environ.pop("DATAFORSEO_PASSWORD", None)

@@ -19,8 +19,10 @@ log = logging.getLogger("app")
 def create_app() -> FastAPI:
     s = get_settings()
     app = FastAPI(title="Metricon Market Intelligence", docs_url=None, redoc_url=None, openapi_url=None)
-    if s.session_secret in ("dev-only-change-me", "") and s.session_cookie_secure:
+    if s.require_login and s.session_secret in ("dev-only-change-me", "") and s.session_cookie_secure:
         raise RuntimeError("SESSION_SECRET must be set in production")
+    if not s.require_login:
+        log.warning("REQUIRE_LOGIN is off: the UI, API, exports and admin actions are open to anyone who can reach this URL.")
     app.add_middleware(SessionMiddleware, secret_key=s.session_secret, session_cookie="mi_session", max_age=s.session_max_age_hours * 3600,
                        same_site="lax", https_only=s.session_cookie_secure)
 

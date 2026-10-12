@@ -9,7 +9,7 @@ import Conditions from "./views/Conditions";
 import Admin from "./views/Admin";
 
 export type Geo = "AU" | "VIC" | "NSW" | "QLD" | "SA";
-export type User = { email: string; name?: string; role: "viewer" | "admin" };
+export type User = { email: string; name?: string; role: "viewer" | "admin"; login_required?: boolean };
 type Ctx = { geo: Geo; setGeo: (g: Geo) => void; meta: any; user: User; navigate: (p: string) => void };
 export const AppCtx = createContext<Ctx>(null as any);
 export const useApp = () => useContext(AppCtx);
@@ -86,7 +86,7 @@ export default function App() {
         <nav className="nav" aria-label="Main">{links.map((v) => <a key={v.path} href={v.path + `?geo=${geo}`} className={active === v.path ? "on" : ""} onClick={(e) => { e.preventDefault(); navigate(v.path + `?geo=${geo}`); }}>{v.label}</a>)}</nav>
         <div className="spacer" />
         {!onAdmin && <div className="geo" role="group" aria-label="Geography">{GEOS.map((g) => <button key={g.code} title={g.title} className={geo === g.code ? "on" : ""} onClick={() => setGeo(g.code)}>{g.label}</button>)}</div>}
-        <div className="userbox"><span className="small muted">{user.email}</span><button className="btn sm" onClick={logout}>Sign out</button></div>
+        {user.login_required && <div className="userbox"><span className="small muted">{user.email}</span><button className="btn sm" onClick={logout}>Sign out</button></div>}
       </div></header>
       <main className="page">
         {path === "/" && <MarketBrief />}

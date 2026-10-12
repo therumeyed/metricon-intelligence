@@ -19,6 +19,8 @@ services:
     envVars:
       - key: DATABASE_URL
         fromDatabase: { name: metricon-intel-db, property: connectionString }
+      - key: REQUIRE_LOGIN            # "false" = no sign-in, open to anyone with the URL. Set "true" to require accounts.
+        value: "false"
       - key: SESSION_SECRET
         generateValue: true
       - key: SESSION_COOKIE_SECURE

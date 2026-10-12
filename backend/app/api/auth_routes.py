@@ -42,4 +42,6 @@ def logout(request: Request):
 
 @router.get("/me")
 def me(user: AppUser = Depends(auth.current_user)):
-    return {"email": user.email, "name": user.name, "role": user.role}
+    from ..config import get_settings
+
+    return {"email": user.email, "name": user.name, "role": user.role, "login_required": get_settings().require_login}

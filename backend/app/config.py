@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str = "postgresql+psycopg://metricon:metricon@localhost:5433/metricon"
+    # Login is OFF by default: anyone who can reach the URL gets full (administrator) access. Set REQUIRE_LOGIN=true to bring the
+    # sign-in page, accounts and roles back; nothing else changes.
+    require_login: bool = False
     session_secret: str = "dev-only-change-me"
     session_cookie_secure: bool = False
     session_max_age_hours: int = 12

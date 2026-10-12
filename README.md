@@ -1,6 +1,6 @@
 # Metricon Market Intelligence
 
-A private tool for Metricon's marketing and sales teams. It collects real data, keeps the evidence, and explains what changed in buyer demand, competitor offers, competitor activity and the wider home-building market.
+A tool for Metricon's marketing and sales teams (open access by default; see Access). It collects real data, keeps the evidence, and explains what changed in buyer demand, competitor offers, competitor activity and the wider home-building market.
 
 **Five views:** Market brief · Demand trends · Offers in market · Competitor activity · Market conditions. A separate Admin area holds configuration, review and job controls. State selector (Australia / VIC / NSW / QLD / SA) sits in the main navigation.
 
@@ -74,7 +74,7 @@ Render cron is UTC only. The cron fires **every hour** and `dispatch` decides wh
 1. Push this repo to GitHub.
 2. In Render: **New -> Blueprint**, pick the repo. It reads `render.yaml` and creates the web service, an hourly cron service and Postgres.
 3. When prompted, enter the `sync: false` secrets. Leave `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`, `DATAFORSEO_*` blank to start; those modules show "not connected" until set (on **both** the web and cron services). `CLAUDE_MODEL` must be a model id you have confirmed works with your key; none is assumed.
-4. Set `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` for the first administrator, sign in, create other users, then clear the password variable.
+4. Login is off by default (see Access). Only if you set `REQUIRE_LOGIN=true`: set `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` for the first administrator, sign in, create other users, then clear the password variable.
 5. In Admin: upload the GSC workbook (Search data), review Sources, run **Trends -> capability test** once credentials are in, and switch on more Trends plans as budget allows.
 6. Optional Playwright rendering for JavaScript-only sites: build with `--build-arg INSTALL_BROWSER=1`, set `ALLOW_BROWSER_FETCH=true` and flag the source `fetch_mode=browser`. It reports bot challenges; it never tries to defeat them.
 
@@ -99,7 +99,9 @@ All state is in PostgreSQL (records, evidence, corrections, audit, job history);
 
 ## Access
 
-Private by default. Admin-created accounts, bcrypt password hashes, signed session cookies, CSRF header on every state-changing request, sign-in throttling. Roles: *viewer* (explore, compare, export) and *administrator* (everything in Admin). The API, CSV/Markdown exports and admin routes all require a session; only the static app shell and `/healthz` are public.
+**Login is off by default.** Anyone who can reach the URL sees everything and has full administrator rights: they can change the roster, correct offers, upload data and start jobs (including ones that spend DataForSEO and Anthropic credits). Only the spend limits in Admin → Limits cap that. Keep the URL private, or put the service behind something that restricts who can reach it.
+
+To bring sign-in back, set `REQUIRE_LOGIN=true` on the web service. That turns on admin-created accounts, bcrypt password hashes, signed session cookies and viewer / administrator roles, and the API, exports and admin routes then require a session. Set `SESSION_SECRET` (Render generates one) and create the first admin with `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` or `python -m app.cli create-user`. A CSRF header is required on every state-changing request in both modes. Actions taken in open mode are recorded in the audit log without a user name.
 
 ## Repository map
 
