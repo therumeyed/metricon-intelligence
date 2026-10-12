@@ -1,0 +1,8 @@
+.git
+**/node_modules
+**/__pycache__
+frontend/dist
+backend/static
+backend/tests
+.env
+*.xlsx

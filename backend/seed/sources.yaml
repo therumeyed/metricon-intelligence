@@ -26,6 +26,7 @@ sources:
 
   # ---- NSW
   - {brand: mcdonald-jones-homes, kind: discovery_seed, url: "https://www.mcdonaldjoneshomes.com.au/", state: NSW}
+  - {brand: mcdonald-jones-homes, kind: offer_listing, url: "https://www.mcdonaldjoneshomes.com.au/offers", state: NSW, notes: "Listing of current offers; individual offer pages are followed. Some offers are regional (e.g. Hunter) - region must be read from the offer text."}
   - {brand: clarendon-homes, kind: discovery_seed, url: "https://www.clarendon.com.au/", notes: "Covers NSW and QLD; offer pages must state the state."}
   - {brand: eden-brae-homes, kind: discovery_seed, url: "https://www.edenbrae.com.au/", state: NSW, notes: "Connection reset from the first probe environment."}
 
@@ -43,3 +44,13 @@ sources:
   # ---- Competitor activity pages (designs / packages / display homes). Starter set; admins extend.
   - {brand: carlisle-homes, kind: competitor_page, url: "https://www.carlislehomes.com.au/offers/", state: VIC, context: {item_type: display}, notes: "Display-home list sits on the offers page."}
   - {brand: hickinbotham, kind: competitor_page, url: "https://hickinbotham.com.au/buying-guide/promotions-and-offers/", state: SA, context: {item_type: display}}
+
+  # ---- Homepages scanned for design / display / package / estate pages (registered as competitor_page sources on first run)
+  - {brand: arden-homes, kind: discovery_seed, url: "https://ardenhomes.com.au/", state: VIC}
+  - {brand: carlisle-homes, kind: discovery_seed, url: "https://www.carlislehomes.com.au/", state: VIC}
+  - {brand: senka-homes, kind: discovery_seed, url: "https://www.senkahomes.com.au/", state: VIC}
+  - {brand: mimosa-homes, kind: discovery_seed, url: "https://www.mimosahomes.com.au/", state: VIC}
+  - {brand: brighton-homes, kind: discovery_seed, url: "https://www.brightonhomes.net.au/", state: QLD}
+  - {brand: plantation-homes, kind: discovery_seed, url: "https://www.plantationhomes.com.au/", state: QLD}
+  - {brand: fairmont-homes, kind: discovery_seed, url: "https://fairmonthomes.com.au/", state: SA}
+  - {brand: hickinbotham, kind: discovery_seed, url: "https://hickinbotham.com.au/", state: SA}

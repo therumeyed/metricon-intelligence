@@ -1,0 +1,71 @@
+# Render Blueprint - https://render.com/docs/blueprint-spec
+# One Docker image serves the UI + API (web) and runs the scheduled collection (cron). PostgreSQL holds every record and all evidence;
+# nothing relies on a local disk. Secrets marked sync:false are prompted for when the Blueprint is first created.
+databases:
+  - name: metricon-intel-db
+    databaseName: metricon_intel
+    user: metricon_intel
+    plan: 0.1c-256mb          # increase when snapshot storage grows (see README: storage estimate)
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: metricon-intel-web
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    plan: 0.5c-512mb
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase: { name: metricon-intel-db, property: connectionString }
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      - key: APP_TIMEZONE
+        value: Australia/Sydney
+      - key: SEED_ADMIN_EMAIL        # creates the first administrator once, if no admin exists
+        sync: false
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CLAUDE_MODEL            # a model id YOU have verified is available to your key; no default is assumed
+        sync: false
+      - key: DATAFORSEO_LOGIN
+        sync: false
+      - key: DATAFORSEO_PASSWORD
+        sync: false
+      - key: FETCH_CONTACT           # contact address included in the crawler's User-Agent
+        sync: false
+      - key: FETCH_EXTRA_HEADERS_JSON  # optional allowlist header agreed with Metricon IT, e.g. {"X-Intel-Bot":"<token>"}
+        sync: false
+
+  # Hourly dispatcher. Render cron is UTC-only, so the job fires every hour and the app decides what is due in
+  # Australia/Sydney time - daylight saving can never shift a schedule. Each job is database-locked and resumable.
+  - type: cron
+    name: metricon-intel-dispatch
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    schedule: "0 * * * *"
+    dockerCommand: python -m app.cli dispatch
+    plan: 0.5c-512mb
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase: { name: metricon-intel-db, property: connectionString }
+      - key: APP_TIMEZONE
+        value: Australia/Sydney
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CLAUDE_MODEL
+        sync: false
+      - key: DATAFORSEO_LOGIN
+        sync: false
+      - key: DATAFORSEO_PASSWORD
+        sync: false
+      - key: FETCH_CONTACT
+        sync: false
+      - key: FETCH_EXTRA_HEADERS_JSON
+        sync: false

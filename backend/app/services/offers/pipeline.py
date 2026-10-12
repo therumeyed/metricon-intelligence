@@ -350,6 +350,7 @@ def upsert_offer(db: Session, *, brand: Brand, source: Source, snap: SourceSnaps
         created = True
     if note:
         offer.status_reason = note
+    first_link_here = not any(x.source_id == source.id for x in offer.sources)
     _link(db, offer, source, snap, role, now)
     if role == "listing" and not offer.source_url:
         offer.source_url = source.url
@@ -372,11 +373,13 @@ def upsert_offer(db: Session, *, brand: Brand, source: Source, snap: SourceSnaps
             ev += [{"field": "eligibility", "excerpt": q, "snapshot_id": snap.id, "source_url": snap.final_url or source.url} for q in d["eligibility"].get("evidence", [])]
             if d["dates"].get("evidence"):
                 ev.append({"field": "dates", "excerpt": d["dates"]["evidence"], "snapshot_id": snap.id, "source_url": snap.final_url or source.url})
+            # first look at a page that elaborates an existing campaign is an enrichment baseline, not a market change
+            enrichment = bool(last is not None and first_link_here and role == "detail")
             ver = OfferVersion(offer_id=offer.id, version_no=(last.version_no + 1) if last else 1, fields_hash=h, fields=d, evidence=ev,
                                unresolved=list(dict.fromkeys(d.get("unresolved", []) + evidence_notes)),
-                               diff=diff_fields(material_fields(last.fields) if last else None, material),
+                               diff=[] if enrichment else diff_fields(material_fields(last.fields) if last else None, material),
                                snapshot_ids=[snap.id], extraction_method=method, extraction_version=EXTRACTION_VERSION, model=model,
-                               observed_at=now, is_baseline=created and is_baseline)
+                               observed_at=now, is_baseline=(created and is_baseline) or enrichment)
             db.add(ver)
             db.flush()
             offer.versions.append(ver)
@@ -497,7 +500,7 @@ def process_source(db: Session, source: Source, snap: SourceSnapshot, llm: LLM |
             return result  # leave everything as it was; do not fall back to a different extractor mid-history
     if page is None:
         link_map = {l["text"].strip().lower(): l["href"] for l in links if l["text"]}
-        page = rules_extract.extract_from_blocks(content_mod.promo_window(blocks), default_year=today_local(now).year, link_map=link_map)
+        page = rules_extract.extract_from_blocks(content_mod.promo_window(blocks), default_year=today_local(now).year, link_map=link_map, single=(source.kind == "offer_detail"))
     page, vnotes = verify_page(page, text)
     notes += vnotes
     role = "detail" if source.kind == "offer_detail" else "listing"

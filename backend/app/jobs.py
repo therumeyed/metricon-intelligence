@@ -84,6 +84,26 @@ def discover_from_seed(db, source: Source, snap: SourceSnapshot) -> int:
             added += 1
             if added >= 8:
                 break
+    # design / display-home / package / estate index pages become competitor-activity sources (top-level index pages only)
+    from urllib.parse import urlsplit
+
+    item_rx = {"display": re.compile(r"display-(homes?|villages?)"), "package": re.compile(r"house-?(and|&)?-?land|packages"),
+               "design": re.compile(r"(home|house)-designs|our-homes|/designs|floor-?plans")}
+    per_type: dict[str, int] = {}
+    existing_ct = {(s.url.rstrip("/"), s.context_key) for s in db.scalars(select(Source).where(Source.brand_id == brand.id))}
+    for l in links:
+        href = l["href"].split("#")[0].split("?")[0]
+        path = urlsplit(href).path
+        if not content_mod.same_site(href, list(brand.official_domains or [])) or path.count("/") > 3:
+            continue
+        for itype, rx in item_rx.items():
+            if rx.search(path.lower()) and per_type.get(itype, 0) < 2 and (href.rstrip("/"), itype) not in existing_ct:
+                db.add(Source(brand_id=brand.id, kind="competitor_page", url=href, context_key=itype, context={"item_type": itype}, state=source.state,
+                              discovered_from_id=source.id, notes=f"discovered from {source.url}"))
+                existing_ct.add((href.rstrip("/"), itype))
+                per_type[itype] = per_type.get(itype, 0) + 1
+                added += 1
+                break
     return added
 
 
