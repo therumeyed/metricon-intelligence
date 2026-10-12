@@ -240,6 +240,8 @@ def refresh_flags(db: Session, offer: Offer) -> None:
         reasons.append("Landing page and terms conflict - definitive comparison needs review")
     if eff.get("year_inferred"):
         reasons.append("Expiry year was not printed; inferred from the observation date")
+    if "~" in offer.campaign_key:
+        reasons.append("Same title as another campaign but different conditions, amounts or expiry - kept separate pending review")
     if offer.status == "needs_review":
         reasons.append(offer.status_reason or "Status cannot be established from current evidence")
     for c in active_corrections(db, offer).values():

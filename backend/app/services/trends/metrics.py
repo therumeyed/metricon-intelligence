@@ -90,6 +90,8 @@ def four_week_change(points: list[Point], today: date) -> Change:
     if len(pts) < WINDOW * 2:
         return Change("unavailable", reason="insufficient_observations")
     cur, base = pts[-WINDOW:], pts[-2 * WINDOW:-WINDOW]
+    if (cur[0].start - base[-1].start).days > 8:  # the 'preceding' window must be directly adjacent: a hole is not a baseline
+        return Change("unavailable", reason="gaps_in_series")
     return _compare(cur, base)
 
 

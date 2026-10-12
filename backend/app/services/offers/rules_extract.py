@@ -69,6 +69,7 @@ def _first_amount(text: str) -> tuple[float | None, str | None]:
     return vals[0], q
 
 
+DATE_LINE = re.compile(r"^\W*(offers?|promotions?|promo|valid|terms|ends?|expires?|closes?|until)\b[^$]{0,60}$", re.I)
 GENERIC_TITLE = re.compile(r"^(limited time( offer)?|don.t miss out|claim your offer|even more ways|more ways to save|view (all )?offers?|current offers?|our offers?|special offers?|exclusive offers?|promotions?|offers?)\b[\s.!]*$|^don.t miss out", re.I)
 
 
@@ -88,7 +89,7 @@ def _merge_orphan_amounts(blocks: list[str]) -> list[str]:
 
 def extract_from_blocks(blocks: list[str], default_year: int | None = None, link_map: dict[str, str] | None = None) -> PageExtraction:
     blocks = _merge_orphan_amounts(blocks)
-    heads = [i for i, b in enumerate(blocks) if HEAD_RX.search(b) and 6 <= len(b) <= 140 and not SKIP_RX.match(b) and not GENERIC_TITLE.match(b.strip())]
+    heads = [i for i, b in enumerate(blocks) if HEAD_RX.search(b) and 6 <= len(b) <= 140 and not SKIP_RX.match(b) and not GENERIC_TITLE.match(b.strip()) and not (DATE_LINE.match(b.strip()) and find_dates(b, 2026))]
     offers: list[ExtractedOffer] = []
     used = set()
     for n, i in enumerate(heads):

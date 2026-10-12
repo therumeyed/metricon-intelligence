@@ -99,8 +99,9 @@ def date_supported(iso: str | None, evidence: str | None, corpus: str) -> tuple[
         d = date.fromisoformat(iso)
     except ValueError:
         return None, False
-    for source in (evidence or "", corpus):
-        for found, stated in find_dates(source, default_year=d.year):
+    ev_on_page = bool(evidence) and quote_in_text(evidence, norm(corpus))
+    for source in (evidence if ev_on_page else "", corpus):  # a quote that is not actually on the page cannot vouch for a date
+        for found, stated in find_dates(source or "", default_year=d.year):
             if found == d:
                 return d, not stated
     return None, False
@@ -199,7 +200,7 @@ def verify_page(page: PageExtraction, corpus: str) -> tuple[PageExtraction, list
     for o in page.offers:
         v, notes = verify_offer(o, corpus)
         all_notes.extend(f"[{o.title[:40]}] {n}" for n in notes)
-        if v.benefits or v.dates.expiry_date or v.withdrawn_explicit:
+        if v.benefits or v.withdrawn_explicit:  # a date on its own is not an offer
             kept.append(v)
         else:
             all_notes.append(f"[{o.title[:40]}] dropped: no verifiable benefit")
