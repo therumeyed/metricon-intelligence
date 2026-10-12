@@ -139,7 +139,7 @@ function Capabilities() {
 }
 
 export default function Demand() {
-  const { geo, meta } = useApp();
+  const { geo, meta, user } = useApp();
   const [tab, setTab] = useState<"brands" | "themes" | "gsc">("brands");
   const [win, setWin] = useState<Win>("365");
   const [yoy, setYoy] = useState(false);
@@ -154,7 +154,7 @@ export default function Demand() {
             <button className="btn" onClick={() => download(`/api/demand/export.csv?geo=${geo}&kind=${tab === "themes" ? "themes" : "brands"}`)}>Export CSV</button></>}
         </div>
       </div>
-      {!trends.connected && <Banner><strong>Search-interest data is not connected.</strong> {trends.reason}. Stored data (if any) is shown; no new Trends requests are made. Search Console data below is unaffected.</Banner>}
+      {!trends.connected && <Banner><strong>Search-interest data is not connected.</strong> {user.role === "admin" ? `${trends.reason}. ` : ""}Anything already stored is shown; nothing new is being collected. The Metricon search visibility tab is unaffected.</Banner>}
       <Tabs value={tab} onChange={setTab} items={[{ id: "brands", label: "Brand comparison" }, { id: "themes", label: "Categories & subthemes" }, { id: "gsc", label: "Metricon search visibility" }]} />
       {tab === "brands" && <Brands win={win} yoy={yoy} />}
       {tab === "themes" && <Themes win={win} />}

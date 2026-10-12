@@ -77,7 +77,7 @@ export default function Offers() {
 
         {hist ? <Banner tone="info"><strong>Historical view – offers as they stood on {fmtDate(asOf)}.</strong> Includes offers first observed by then and not past their published expiry. Dates are when we first saw an offer, so earlier campaigns may be missing. This is not the current picture.</Banner>
           : <Banner tone="info"><strong>Current view</strong> – {geo === "AU" ? "all monitored states" : `offers listed for ${geo}`}. Geography is shown exactly as stated; an offer without a stated region is flagged, never assumed national.</Banner>}
-        {data.data?.own_blocked?.length > 0 && <Banner><strong>Metricon’s own offer pages could not be collected automatically.</strong> {data.data.own_blocked[0].last_error || "The site returned a bot-protection challenge"}. Metricon rows appear only after the site is allowlisted for this tool or an administrator pastes the page content (Admin → Sources).</Banner>}
+        {data.data?.own_blocked?.length > 0 && <Banner><strong>Metricon’s own offers aren’t being collected automatically yet.</strong> Its website blocks automated access. Metricon rows will appear once the site allows this tool through, or an administrator adds the page content (Admin → Sources).</Banner>}
         {data.loading && !data.data && <Loading />}
         {data.error && <ErrorBox message={data.error} />}
         {data.data && sorted.length === 0 && <Empty>No offers match these filters.</Empty>}

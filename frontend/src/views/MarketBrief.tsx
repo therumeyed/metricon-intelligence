@@ -5,7 +5,7 @@ import { Banner, Chip, Empty, ErrorBox, Loading, Tile, download, useFetch } from
 const GEO_NAME: Record<string, string> = { AU: "Australia", VIC: "Victoria", NSW: "New South Wales", QLD: "Queensland", SA: "South Australia" };
 
 export default function MarketBrief() {
-  const { geo, meta, navigate } = useApp();
+  const { geo, meta, navigate, user } = useApp();
   const brief = useFetch(`/api/brief?scope=${geo}`, [geo]);
   const macro = useFetch(`/api/macro?geo=${geo}`, [geo]);
   const events = useFetch(`/api/events?state=${geo}&days=14`, [geo]);
@@ -28,7 +28,7 @@ export default function MarketBrief() {
         {b && <button className="btn" onClick={() => download(`/api/brief/export.md?scope=${geo}`)}>Download brief (Markdown)</button>}
       </div>
 
-      {!ai.connected && <Banner><strong>Weekly brief writing is switched off.</strong> {ai.reason}. Tables, charts and exports below still work; no placeholder text is generated.</Banner>}
+      {!ai.connected && <Banner><strong>Written weekly briefs are switched off.</strong> {user.role === "admin" ? `${ai.reason}. ` : ""}The tables, charts and exports below still work, and no placeholder text is generated.</Banner>}
       {brief.loading && <Loading />}
       {brief.error && <ErrorBox message={brief.error} />}
 

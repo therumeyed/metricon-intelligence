@@ -9,7 +9,7 @@ Nothing here was measured for DataForSEO or Anthropic spend: neither was connect
 |---|---|---|---|
 | Offers | 31 offer pages (listing + discovered detail) across 9 of 16 brands | daily | Metricon blocked; 6 other brands need admin attention (see LIVE_CHECKS.md) |
 | Competitor items | 41 index pages, 477 tracked items, 10 brands | daily | link-based identity; baseline only until history builds |
-| Macro | 15 ABS series (5 geographies x 2 indicators + approvals) + RBA | daily check | ABS and RBA are free |
+| Macro | 10 ABS series (approvals and PPI output index for AU, NSW, VIC, QLD, SA) + the RBA cash rate | daily check | ABS and RBA are free |
 | News | 25 queries | daily | free; headline only |
 | Trends | 61 plans (6 brand groups, 55 theme groups); 8 active as the pilot | weekly | not run - no credentials |
 | GSC | 1 import, replaced only on upload | on upload | |
