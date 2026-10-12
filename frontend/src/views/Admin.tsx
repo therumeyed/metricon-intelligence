@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { api, fmtDate, fmtDateTime } from "../api";
 import { Banner, Chip, Empty, ErrorBox, Loading, Tabs, useFetch } from "../ui";
 
@@ -30,7 +30,16 @@ function Jobs() {
   const [test, setTest] = useState<any>(null);
   const [testing, setTesting] = useState(false);
   const runTest = async () => { setTesting(true); try { setTest(await api.post("/api/admin/test-connections")); } catch (e) { setTest({ error: (e as Error).message }); } finally { setTesting(false); } };
-  const run = async (name: string, params: any = {}) => { try { const r = await api.post("/api/admin/jobs/run", { name, params }); setMsg(`Queued job ${r.job_id}`); setTimeout(d.reload, 1500); } catch (e) { setMsg((e as Error).message); } };
+  const run = async (name: string, params: any = {}) => { try { const r = await api.post("/api/admin/jobs/run", { name, params }); setMsg(`Started job ${r.job_id} (${name.replace(/_/g, " ")}). It runs in the background; this table refreshes by itself.`); d.reload(); } catch (e) { setMsg((e as Error).message); } };
+  const active = (d.data?.runs ?? []).filter((r: any) => r.status === "queued" || r.status === "running");
+  const anyActive = active.length > 0;
+  useEffect(() => {
+    if (!anyActive && !msg.startsWith("Started")) return;
+    const t = setInterval(d.reload, 3000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anyActive, msg]);
+  const elapsed = (r: any) => { const t0 = new Date(r.started_at ?? r.queued_at).getTime(); const sec = Math.max(0, Math.round((Date.now() - t0) / 1000)); return sec < 90 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`; };
   if (!d.data) return d.error ? <ErrorBox message={d.error} /> : <Loading />;
   return (
     <div className="stack">
@@ -50,13 +59,15 @@ function Jobs() {
           <div className="muted">{test.note}</div></div>}
         {(() => { const last = d.data.runs.find((r: any) => r.trigger === "schedule" && r.result?.connections); return last ? <p className="small" style={{ margin: "8px 0 0" }}>The last <b>scheduled</b> run (cron service, {last.name}, {fmtDateTime(last.finished_at)}) saw: AI <Chip tone={last.result.connections.ai ? "good" : "bad"}>{last.result.connections.ai ? "connected" : "not connected"}</Chip> Trends <Chip tone={last.result.connections.trends ? "good" : "bad"}>{last.result.connections.trends ? "connected" : "not connected"}</Chip></p> : null; })()}
       </section>
+      {anyActive && <Banner tone="info"><strong>Running now:</strong> {active.map((r: any) => `${r.name.replace(/_/g, " ")} (${r.status}, ${elapsed(r)})`).join(" · ")}. Updates every few seconds; you can leave this page and come back. Calls to DataForSEO take about 30 seconds each, so the capability test needs a few minutes.</Banner>}
+      {!anyActive && msg && <Banner tone="info">{msg}</Banner>}
       <section className="card">
-        <div className="row between"><h3>Run a job now</h3><span className="small muted">{msg}</span></div>
+        <div className="row between"><h3>Run a job now</h3></div>
         <div className="row" style={{ marginTop: 8 }}>{d.data.available.filter((n: string) => n !== "import_gsc").map((n: string) => <button key={n} className="btn sm" onClick={() => run(n)}>{n.replace(/_/g, " ")}</button>)}</div>
         <p className="tiny faint">Scheduled (Australia/Sydney time, checked hourly): {d.data.schedule.map((s: any) => `${s.job} ${s.cadence === "weekly" ? "Mon" : "daily"} ${String(s.hour_sydney).padStart(2, "0")}:00`).join(" · ")}. Due now: {d.data.due.join(", ") || "none"}.</p>
       </section>
       <div className="tablewrap"><table><thead><tr><th>#</th><th>Job</th><th>Status</th><th>Trigger</th><th>Started</th><th>Finished</th><th>Result</th><th /></tr></thead><tbody>
-        {d.data.runs.map((r: any) => (<><tr key={r.id}><td>{r.id}</td><td>{r.name}</td><td><Chip tone={statusTone(r.status) as any}>{r.status}</Chip></td><td>{r.trigger}</td><td className="small">{fmtDateTime(r.started_at)}</td><td className="small">{fmtDateTime(r.finished_at)}</td>
+        {d.data.runs.map((r: any) => (<><tr key={r.id}><td>{r.id}</td><td>{r.name}</td><td><Chip tone={statusTone(r.status) as any}>{r.status === "running" ? `running ${elapsed(r)}` : r.status}</Chip></td><td>{r.trigger}</td><td className="small">{fmtDateTime(r.started_at)}</td><td className="small">{fmtDateTime(r.finished_at)}</td>
           <td className="small" style={{ maxWidth: 380 }}>{r.result?.not_connected ? <span className="muted">Not connected: {r.result.not_connected}</span> : Object.entries(r.result ?? {}).filter(([k]) => k !== "errors").slice(0, 4).map(([k, v]) => `${k}: ${typeof v === "object" ? "…" : v}`).join(" · ")}</td>
           <td><button className="btn sm" onClick={() => setOpen(open === r.id ? null : r.id)}>Details</button> {(r.status === "failed" || r.status === "partial") && <button className="btn sm" onClick={async () => { await api.post(`/api/admin/jobs/${r.id}/retry`); d.reload(); }}>Retry</button>}</td></tr>
           {open === r.id && <tr key={r.id + "d"}><td colSpan={8}><pre className="small" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{r.error || JSON.stringify(r.result, null, 2)}</pre></td></tr>}</>))}</tbody></table></div>
@@ -185,7 +196,7 @@ function Trends() {
   const [msg, setMsg] = useState("");
   return (
     <div className="stack">
-      <section className="card"><div className="row between"><h3>Provider capability tests</h3><button className="btn sm" onClick={async () => { await api.post("/api/admin/jobs/run", { name: "trends_capability", params: { cities: true } }); setMsg("Capability test queued (spends a few paid requests)"); }}>Run capability test (incl. cities)</button></div>
+      <section className="card"><div className="row between"><h3>Provider capability tests</h3><button className="btn sm" onClick={async () => { await api.post("/api/admin/jobs/run", { name: "trends_capability", params: { cities: true } }); setMsg("Capability test started: 9 live calls, roughly 5 minutes. Watch it under the Jobs tab; this page won\u2019t update until you reload it afterwards."); }}>Run capability test (incl. cities)</button></div>
         <p className="small muted">{msg} Tests resolve each location from the provider’s current catalogue and check a generic home-building query returns usable data.</p>
         <div className="tablewrap"><table><thead><tr><th>Geography</th><th>Tested</th><th>Supported</th><th>Coverage</th><th>Detail</th></tr></thead><tbody>{caps.data?.map((c: any) => <tr key={c.geo}><td>{c.geo}</td><td>{c.tested ? fmtDate(c.tested_at) : "Not tested"}</td><td>{c.supported == null ? "–" : c.supported ? "Yes" : "No"}</td><td>{c.coverage ?? "–"}</td><td className="small muted">{c.detail?.reason ?? ""}</td></tr>)}</tbody></table></div></section>
       <section className="card"><div className="row between"><h3>Refresh plans</h3><button className="btn sm" onClick={async () => { const r = await api.post("/api/admin/trend-plans/activate-all"); setMsg(`Activated ${r.activated} plans. They are fetched on the next weekly run, or run “refresh trends” under Jobs now.`); plans.reload(); }}>Activate all plans</button></div><p className="small muted">Each plan is one comparable request (≤5 keywords, one geography). Only the 8 pilot plans (Australia and Victoria) start active, so NSW, QLD and SA stay empty until you switch them on. All 61 plans cost roughly $0.67 a week at DataForSEO’s list price.</p>
