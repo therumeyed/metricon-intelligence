@@ -247,7 +247,7 @@ def macro_view(geo: str = "AU", db: Session = Depends(get_db)):
     series = list(db.scalars(select(MacroSeries).where(MacroSeries.active.is_(True), MacroSeries.geography.in_(["AU", geo])).order_by(MacroSeries.indicator, MacroSeries.id)))
     out = []
     for s in series:
-        if geo != "AU" and s.indicator != "cash_rate" and s.geography != geo:
+        if geo != "AU" and s.indicator not in ("cash_rate", "mortgage_rate") and s.geography != geo:
             continue
         out.append(macro.series_view(db, s, 60))
     # state view: also include the national series for context, clearly labelled

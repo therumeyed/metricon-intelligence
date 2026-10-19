@@ -24,6 +24,7 @@ def test_direction_needs_real_metrics():
     no = {"status": "unavailable", "value_pct": None}
     assert M.direction(ok(25), ok(5)) == "rising" and M.direction(ok(-30), no) == "falling" and M.direction(ok(3), ok(2)) == "steady"
     assert M.direction(no, no) == "no_data"
+    assert M.direction(ok(3), ok(48)) == "rising" and M.direction(ok(-2), ok(-40)) == "falling"  # a flat month inside a big year-on-year move is still a move
     assert M.direction(ok(40), ok(-30)) == "steady"  # a spike inside a falling year is not called a rise
 
 

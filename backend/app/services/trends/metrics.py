@@ -149,9 +149,9 @@ def direction(mom4: dict, yoy4: dict) -> str:
     y = yoy4.get("value_pct") if yoy4.get("status") == "ok" else None
     if m is None and y is None:
         return "no_data"
-    ref = m if m is not None else y
-    if ref >= 10 and (y is None or y > -10):
+    mm, yy = (m if m is not None else 0.0), (y if y is not None else 0.0)
+    if (m is not None and m >= 10 and (y is None or y > -10)) or (y is not None and y >= 25 and mm > -5):
         return "rising"
-    if ref <= -10 and (y is None or y < 10):
+    if (m is not None and m <= -10 and (y is None or y < 10)) or (y is not None and y <= -25 and mm < 5):
         return "falling"
     return "steady"

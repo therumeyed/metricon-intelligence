@@ -191,7 +191,10 @@ def validate(db: Session, out: AnalysisOut, facts: dict) -> tuple[dict, list[dic
                 d["type"] = "optimise_page"
                 d["adjustment"] = "The model proposed a new page, but the site already has one on this topic - shown as an improvement to that page."
                 pages = [lookup[x["url"]] for x in cov[:3]]
-                d["title"] = "Improve the existing page: " + r.title.removeprefix("Create ").removeprefix("Build ").removeprefix("Add ")
+                t = r.title
+                for pre in ("Create ", "Build ", "Add ", "Write ", "Publish ", "Launch "):
+                    t = t.removeprefix(pre)
+                d["title"] = "Improve the existing page: " + t.removeprefix("a ").removeprefix("an ").removeprefix("the ")
             else:
                 pages = []
         d["existing_pages"] = [{"url": p.url, "path": p.path, "impressions": p.impressions, "position": round(p.position, 1) if p.position else None} for p in pages]
