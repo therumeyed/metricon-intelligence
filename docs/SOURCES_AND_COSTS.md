@@ -9,7 +9,9 @@ Nothing here was measured for DataForSEO or Anthropic spend: neither was connect
 |---|---|---|---|
 | Offers | 31 offer pages (listing + discovered detail) across 9 of 16 brands | daily | Metricon blocked; 6 other brands need admin attention (see LIVE_CHECKS.md) |
 | Competitor items | 41 index pages, 477 tracked items, 10 brands | daily | link-based identity; baseline only until history builds |
-| Macro | 10 ABS series (approvals and PPI output index for AU, NSW, VIC, QLD, SA) + the RBA cash rate | daily check | ABS and RBA are free |
+| Macro | 15 ABS series (house approvals, houses commenced and PPI output index for AU, NSW, VIC, QLD, SA) + the RBA cash rate and two RBA home loan rates | daily check | ABS and RBA are free |
+| Google results | per-brand offers and news searches (about 65) | daily | DataForSEO SERP, see below |
+| Site inventory | metricon.com.au sitemap + GSC pages | weekly | free; the sitemap is publicly fetchable |
 | News | 25 queries | daily | free; headline only |
 | Trends | 61 plans (6 brand groups, 55 theme groups); 8 active as the pilot | weekly | not run - no credentials |
 | GSC | 1 import, replaced only on upload | on upload | |
@@ -28,6 +30,16 @@ List price on the public pricing page: **$0.011 per task** (up to 5 keywords). C
 
 Re-fetching 24 months weekly is the same price as 12 months, so history depth is free. Stored responses answer every page view; readers never trigger a paid call. Standard (queued) mode is $0.0027 per task and could cut this by about 75% if a 45-minute delay is acceptable; the adapter uses Live today.
 
+### DataForSEO SERP (Google results for offers and news)
+List price about **$0.002 per live SERP of 10 results** (stored estimate `DATAFORSEO_EST_COST_PER_SERP`; the provider's reported cost is stored beside it). Standing searches the app creates: per brand "{brand} offers" and "{brand} current promotions", "{brand} offers {state}" for brands that trade in several states, and one Google News search per brand - roughly 60 to 70 searches a day.
+
+| Scenario | Searches / day | Approx. per month |
+|---|---|---|
+| Standing set (about 65 searches, daily) | 65 | **about $3.90** |
+| + 10 extra admin-added searches | 75 | about $4.50 |
+
+`site:` and `intitle:` operators cost several times more and are refused. A per-job cap (`SERP_MAX_REQUESTS_PER_JOB`, 150) and the daily/monthly DataForSEO limits stop collection before a request is sent. Weekly rising-search discovery now covers every theme (about 18 Trends requests a week, about $0.20, about $0.85 a month).
+
 ### Anthropic (token volumes only)
 No model is configured, so no price is assumed. Volumes from the pilot pages:
 
@@ -36,6 +48,9 @@ No model is configured, so no price is assumed. Volumes from the pilot pages:
 | Offer extraction, first baseline | 31 pages, about 14,000 page tokens + prompts, roughly 45,000 input and 50,000 output tokens in total | once |
 | Offer extraction, steady state | only pages whose promotional text changed (unchanged pages cost nothing); assume 10% of pages a day, about 5,000 input tokens | daily |
 | Terms / PDF analysis | up to about 7,500 input tokens per terms document, once per change | on change |
+| Google-results offer reading | one call per search whose results changed (snippets only, a few hundred tokens each) | daily |
+| News judging | one call per brand with new headlines, about 3,000 input tokens | daily |
+| AI analysis | 5 calls (national + 4 states), about 40,000 input (facts plus the page inventory) and 4,000 output tokens each | weekly |
 | Weekly briefs | 5 calls (national + 4 states), about 10,000 input and 3,000 output tokens each | weekly |
 | GSC batch classification | 300 queries in 3 calls, about 2,500 tokens each | optional, once per import |
 

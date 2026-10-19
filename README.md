@@ -10,11 +10,13 @@ Status, live-check results and open blockers: [`docs/LIVE_CHECKS.md`](docs/LIVE_
 
 | Area | How |
 |---|---|
-| Offers | Daily fetch of official promotion pages, linked offer pages and terms/PDFs. Every fetch is stored as a snapshot. Offers are extracted (Claude when configured, rules otherwise), every quote, amount and date is verified against the page text, and changes become versions with field-level diffs. Failed fetches mark an offer *stale*; they never withdraw it. |
-| Competitor activity | Design / display / package / estate index pages are baselined, then new items and same-identity price changes become events. Offer changes feed in too. |
+| Offers | Two routes. (1) Daily fetch of official promotion pages, linked offer pages and terms/PDFs where a site allows it. (2) **Google results via DataForSEO SERP** ("Metricon offers", "Carlisle Homes current promotions", state variants for multi-state brands): title, URL and snippet of the brand's own-site results are stored as a snapshot and read by Claude. Offers found only this way are tagged *From Google result* and are never read as withdrawn when a result stops appearing. Every quote, amount and date is verified against the stored text; changes become versions with field-level diffs. Failed fetches mark an offer *stale*; they never withdraw it. |
+| Competitor activity | Google News results per brand (DataForSEO SERP News) plus any RSS/Atom feeds you add in Admin, dated by the publisher. Claude (when connected) judges each headline - is it about the builder, what kind of news, a one-sentence summary that must pass a quote and number check; without it, plain headlines are recorded. Design / display / package pages are also baselined where crawlable. One story = one event across channels. |
 | Demand | DataForSEO's **Google Trends** Explore API (not the separate DataForSEO Trends product). Comparable groups of up to five brands per geography; period changes use only complete weeks from the same series. |
 | GSC | The Search Console workbook seeds themes and representative keywords. Query rows and page rows stay separate. |
-| Macro | ABS Building Approvals (private houses), ABS PPI house-construction **output** index, RBA cash rate target. |
+| Macro | ABS Building Approvals (private houses), ABS Building Activity (private houses **commenced**), ABS PPI house-construction **output** index, RBA cash rate target and RBA home loan rates (table F5). Market conditions reads them with transparent rules (shown on screen), compares states, lists release dates and groups news by topic. |
+| Site inventory | Every page known to exist on metricon.com.au: the public sitemap plus pages seen in Search Console. Recommendations are tested against it. |
+| AI analysis | A separate tab. Computed facts (GSC quick wins, low-CTR queries, state content gaps, rising searches from Google Trends across all themes, trend momentum, offers, competitor events, macro) with IDs go to Claude, which writes what is new in the market and what to do. Code then verifies: cited facts must exist, quoted numbers must be in them, a "create a page" idea that matches an existing page is downgraded to "improve that page", and page URLs must exist in the inventory. The computed opportunity tables work without AI. |
 | News | Google News RSS for brand, theme and state queries; deduplicated and filtered; headline-only is labelled. |
 | Briefs | Weekly national + state briefs from computed facts with evidence IDs. Anything unsupported is dropped; if the model fails the previous brief stays and nothing is made up. |
 
@@ -58,7 +60,7 @@ Tests need a database: `createdb metricon_test` then `pytest` (set `TEST_DATABAS
 | `python -m app.cli migrate` / `seed` | Apply migrations / add missing seed rows (never overwrites admin edits) |
 | `create-user EMAIL --role admin\|viewer` | Create an account (there is no public registration) |
 | `import-gsc FILE --period-start --period-end` | Idempotent GSC import + theme mapping + representative terms |
-| `run JOB [--params JSON]` | Run one job: `collect_sources`, `extract_offers`, `detect_events`, `collect_news`, `check_macro`, `refresh_trends`, `discover_related`, `generate_briefs`, `trends_capability`, `classify_gsc` |
+| `run JOB [--params JSON]` | Run one job: `collect_sources`, `collect_search`, `extract_offers`, `detect_events`, `analyse_activity`, `collect_news`, `check_macro`, `refresh_site_inventory`, `refresh_trends`, `discover_related`, `generate_briefs`, `generate_analysis`, `trends_capability`, `classify_gsc` |
 | `daily` / `weekly` | Run that pipeline now, in order; each step isolated |
 | `dispatch` | What Render's cron runs hourly: runs whatever is due in Australia/Sydney time |
 | `trends-capability [--cities]` | Real provider test per geography; records supported / unsupported |
@@ -67,7 +69,7 @@ Tests need a database: `createdb metricon_test` then `pytest` (set `TEST_DATABAS
 The same actions are buttons in Admin -> Jobs, with retry. Jobs are database-locked (no overlap), checkpointed, and bounded by timeouts, per-host delays and spend/call limits.
 
 ### Schedules
-Render cron is UTC only. The cron fires **every hour** and `dispatch` decides what is due using Australia/Sydney time, so daylight saving never moves a schedule. Defaults (Sydney): sources, offers and events 05:00 daily; news and macro 06:00 daily; Trends refresh and discovery Monday 04:00; briefs Monday 08:00. A job that failed is retried at most 3 times per slot; use Retry after that.
+Render cron is UTC only. The cron fires **every hour** and `dispatch` decides what is due using Australia/Sydney time, so daylight saving never moves a schedule. Defaults (Sydney): sources, Google results, offers, events and news analysis 05:00 daily; news and macro 06:00 daily; page inventory Monday 03:00; Trends refresh and discovery Monday 04:00; briefs and AI analysis Monday 08:00. A job that failed is retried at most 3 times per slot; use Retry after that.
 
 ## Deploy to Render
 
@@ -86,14 +88,14 @@ The web service and the hourly cron service are separate processes with **separa
 
 Notes: Blueprint variables marked `sync: false` are only prompted for at first creation; if they were blank then, they stay blank until you edit them in the dashboard (saving redeploys the service). Leading/trailing spaces are ignored. Then open **Admin → Jobs → "Test Anthropic and DataForSEO now"**: it makes one tiny real call to each provider and shows the provider's own error, which variables the web service can see, and what the last scheduled (cron) run saw.
 
-After connecting, the schedules wait for their next slot. To populate straight away, run these under **Admin → Jobs** in order: `trends capability` (once), `refresh trends`, `extract offers` (re-reads existing offers with the model; the change is treated as a re-baseline, not as news), `generate briefs`. Under **Admin → Trends & discovery**, "Activate all plans" turns on NSW, QLD and SA; only the 8 pilot plans (Australia and Victoria) are active by default.
+After connecting, the schedules wait for their next slot. To populate straight away, run these under **Admin → Jobs** in order: `trends capability` (once), `refresh trends`, `discover related`, `collect search` then `extract offers` (reads the Google results; also re-reads existing offers with the model; the change is treated as a re-baseline, not as news), `analyse activity`, `refresh site inventory`, `check macro`, `generate briefs`, `generate analysis` (re-reads existing offers with the model; the change is treated as a re-baseline, not as news), `generate briefs`. Under **Admin → Trends & discovery**, "Activate all plans" turns on NSW, QLD and SA; only the 8 pilot plans (Australia and Victoria) are active by default.
 
 ## Administering sources and the roster
 
 Everything is data, not code (Admin area):
 
 - **Brands & regions:** edit names, domains, state assignments, aliases. New brands need no deploy.
-- **Sources:** add or disable pages, trigger a fetch, see last outcome and error. Pages that can't be crawled can be supplied with **Paste page**; they become manual snapshots and go through the same extraction.
+- **Sources:** add or disable pages, trigger a fetch, see last outcome and error. **Add search** creates a standing Google search for a brand (offers or news; about $0.002 per search per day; `site:` operators are refused because they cost several times more). **News feeds** takes any RSS/Atom URL (for example a Google Alerts feed covering every brand); it is test-read before it is saved. Pages that can't be crawled can be supplied with **Paste page**; they become manual snapshots and go through the same extraction.
 - **Offer review:** open an offer -> *Administrator: correct a field*, or set its status. Machine extraction and evidence stay; your value overrides what readers see; "Return status to automatic" hands control back.
 - **Themes & keywords:** rules, representative keywords (only *tracked* ones go to paid APIs), review of proposed subthemes.
 - **Limits & spend:** daily/monthly DataForSEO limits, request and call caps. Reported and estimated cost are shown separately.
