@@ -63,27 +63,35 @@ class LLM:
         self.job_run_id = job_run_id
         self.calls = 0
 
-    def structured(self, *, system: str, user: str, schema: type[T], tool_name: str = "submit", max_tokens: int = 4096) -> T:
+    def structured(self, *, system: str, user: str, schema: type[T], tool_name: str = "submit", max_tokens: int = 16000, effort: str = "low") -> T:
+        """Schema-constrained JSON via output_config.format (messages.parse).
+
+        Newer models (claude-sonnet-5-5 and kin) reject forced tool_choice with HTTP 400, so we never force a tool. The response is
+        constrained to the schema by the API and validated again by pydantic. `effort` is the model's thinking depth: extraction and
+        classification run at 'low'; synthesis (briefs, insights) asks for 'medium'.
+        """
         spend.check_anthropic(self.db, self.calls)
-        tool = {"name": tool_name, "description": "Return the structured result.",
-                "input_schema": schema.model_json_schema()}
-        resp = self.client.messages.create(
+        resp = self.client.messages.parse(
             model=self.model, max_tokens=max_tokens, system=f"{system}\n\n{UNTRUSTED_NOTE}",
-            tools=[tool], tool_choice={"type": "tool", "name": tool_name},
-            messages=[{"role": "user", "content": user}],
+            messages=[{"role": "user", "content": user}], output_format=schema, output_config={"effort": effort},
         )
         self.calls += 1
         usage = getattr(resp, "usage", None)
         spend.record(self.db, "anthropic", kind="estimated", amount=0, calls=1, job_run_id=self.job_run_id,
                      input_tokens=getattr(usage, "input_tokens", None), output_tokens=getattr(usage, "output_tokens", None),
-                     detail={"model": self.model, "note": "token counts only; no per-token price configured"})
-        for block in resp.content:
-            if getattr(block, "type", None) == "tool_use" and block.name == tool_name:
-                try:
-                    return schema.model_validate(block.input)
-                except ValidationError as e:
-                    raise LLMError(f"schema validation failed: {e.errors()[:3]}") from e
-        raise LLMError("model did not return the requested structured output")
+                     detail={"model": self.model, "effort": effort, "note": "token counts only; no per-token price configured"})
+        stop = getattr(resp, "stop_reason", None)
+        if stop == "refusal":
+            raise LLMError(f"the model declined this request ({getattr(getattr(resp, 'stop_details', None), 'category', None) or 'no category'})")
+        if stop == "max_tokens":
+            raise LLMError("the model's answer was cut off at max_tokens; the structured result is incomplete")
+        out = getattr(resp, "parsed_output", None)
+        if out is None:
+            raise LLMError("the model did not return output matching the schema")
+        try:
+            return schema.model_validate(out.model_dump() if hasattr(out, "model_dump") else out)
+        except ValidationError as e:
+            raise LLMError(f"schema validation failed: {e.errors()[:3]}") from e
 
 
 def wrap_document(text: str, url: str | None = None) -> str:

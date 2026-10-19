@@ -43,7 +43,7 @@ def extract_page(llm: LLM, *, brand: str, url: str, text: str, links: list[dict]
         f"LINKS found on the page:\n{link_lines or '(none)'}\n\n{wrap_document(text, url)}\n\n"
         "Extract every distinct current promotion on this page."
     )
-    return llm.structured(system=SYSTEM, user=user, schema=PageExtraction, tool_name="submit_offers", max_tokens=6000)
+    return llm.structured(system=SYSTEM, user=user, schema=PageExtraction, tool_name="submit_offers", max_tokens=16000)
 
 
 def enrich_from_terms(llm: LLM, *, brand: str, offer_title: str, offer_summary: str, terms_url: str, terms_text: str, observed: date) -> TermsEnrichment:
@@ -54,4 +54,4 @@ def enrich_from_terms(llm: LLM, *, brand: str, offer_title: str, offer_summary: 
         "type, land status, finance requirements, exclusions) with verbatim evidence quotes, any printed start/expiry dates, and any contradiction with the landing "
         "page summary. If the terms do not mention this offer, return empty lists and say so in still_unresolved."
     )
-    return llm.structured(system=SYSTEM, user=user, schema=TermsEnrichment, tool_name="submit_terms", max_tokens=3000)
+    return llm.structured(system=SYSTEM, user=user, schema=TermsEnrichment, tool_name="submit_terms", max_tokens=16000)

@@ -29,7 +29,7 @@ class FakeLLM:
         self.outputs = list(outputs)
         self.calls = 0
 
-    def structured(self, *, system, user, schema, tool_name="submit", max_tokens=0):
+    def structured(self, *, system, user, schema, tool_name="submit", max_tokens=0, effort="low"):
         self.calls += 1
         out = self.outputs.pop(0) if len(self.outputs) > 1 else self.outputs[0]
         return out if not callable(out) else out(user)

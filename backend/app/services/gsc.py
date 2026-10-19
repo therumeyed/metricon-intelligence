@@ -393,7 +393,7 @@ def classify_unmapped(db: Session, llm, import_id: int, limit: int = 300, batch_
     for i in range(0, len(rows), batch_size):
         chunk = rows[i:i + batch_size]
         user = f"Themes:\n{legend}\n\nQueries (index: text):\n" + "\n".join(f"{n}: {q[1]}" for n, q in enumerate(chunk))
-        out = llm.structured(system=system, user=user, schema=Batch, tool_name="submit_classes", max_tokens=4000)
+        out = llm.structured(system=system, user=user, schema=Batch, tool_name="submit_classes", max_tokens=16000)
         stats["calls"] += 1
         upd = []
         for it in out.items:

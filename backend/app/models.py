@@ -169,6 +169,7 @@ class Offer(Base):
     last_failed_attempt_at: Mapped[datetime | None] = mapped_column(TS)
     last_failure_reason: Mapped[str | None] = mapped_column(Text)
     is_baseline: Mapped[bool] = mapped_column(Boolean, default=True)  # first capture of its source = baseline
+    evidence_level: Mapped[str] = mapped_column(String(16), default="page")  # page | search_snippet (read from a Google result, not the page)
     current_version_id: Mapped[int | None] = mapped_column(BigInteger)
     effective: Mapped[dict] = mapped_column(JSONB, default=dict)  # machine fields + corrections, as served to readers
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
@@ -313,6 +314,8 @@ class CompetitorEvent(Base):
     evidence: Mapped[list] = mapped_column(JSONB, default=list)
     is_baseline: Mapped[bool] = mapped_column(Boolean, default=False)
     offer_id: Mapped[int | None] = mapped_column(ForeignKey("offer.id", ondelete="SET NULL"))
+    origin: Mapped[str] = mapped_column(String(16), default="crawl")  # crawl | search_news | search_web | rss
+    published_at: Mapped[datetime | None] = mapped_column(TS)  # when the publisher dated the item (distinct from observed_at)
     brand: Mapped[Brand] = relationship()
 
 
@@ -468,6 +471,7 @@ class TrendPlan(Base):
     brand_ids: Mapped[list] = mapped_column(JSONB, default=list)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     pilot: Mapped[bool] = mapped_column(Boolean, default=False)
+    auto_managed: Mapped[bool] = mapped_column(Boolean, default=True)  # false once an admin edits the keywords: we then stop re-selecting them
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
 
 
@@ -739,3 +743,55 @@ class AppSetting(Base):
     key: Mapped[str] = mapped_column(String(80), primary_key=True)
     value: Mapped[Any] = mapped_column(JSONB)
     updated_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+
+
+# --------------------------------------------------------------------------- site inventory, feeds, AI analysis
+class SitePage(Base):
+    """Every Metricon URL we know exists: from the GSC page export and from the sitemap. Used so recommendations never propose a page that is already there."""
+
+    __tablename__ = "site_page"
+    __table_args__ = (Index("ix_site_page_kind", "page_kind"),)
+    id: Mapped[int] = pk()
+    url: Mapped[str] = mapped_column(Text, unique=True)  # canonical: scheme+host+path, no query string or fragment
+    path: Mapped[str] = mapped_column(Text)
+    sources: Mapped[list] = mapped_column(JSONB, default=list)  # ["gsc", "sitemap"]
+    page_kind: Mapped[str | None] = mapped_column(String(40))
+    theme_slug: Mapped[str | None] = mapped_column(String(60))
+    state_hint: Mapped[str | None] = mapped_column(String(3))
+    impressions: Mapped[int | None] = mapped_column(BigInteger)  # from the latest GSC import, if the page appears there
+    clicks: Mapped[int | None] = mapped_column(BigInteger)
+    position: Mapped[float | None] = mapped_column(Float)
+    first_seen_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+
+
+class NewsFeed(Base):
+    """Extra RSS/Atom feeds supplied by an administrator (e.g. an alerts feed covering every brand)."""
+
+    __tablename__ = "news_feed"
+    id: Mapped[int] = pk()
+    url: Mapped[str] = mapped_column(Text, unique=True)
+    label: Mapped[str | None] = mapped_column(String(160))
+    state: Mapped[str | None] = mapped_column(String(3))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_fetched_at: Mapped[datetime | None] = mapped_column(TS)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    items_last_run: Mapped[int | None] = mapped_column(Integer)
+
+
+class InsightReport(Base):
+    """AI analysis and recommendations for a scope and week. Facts are stored beside the report so every claim can be audited."""
+
+    __tablename__ = "insight_report"
+    __table_args__ = (Index("ix_insight_scope_week", "scope", "week_start"),)
+    id: Mapped[int] = pk()
+    scope: Mapped[str] = mapped_column(String(3))  # AU VIC NSW QLD SA
+    week_start: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(12))  # ok failed
+    is_current: Mapped[bool] = mapped_column(Boolean, default=False)
+    generated_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+    model: Mapped[str | None] = mapped_column(String(80))
+    prompt_version: Mapped[str | None] = mapped_column(String(30))
+    facts: Mapped[dict | None] = mapped_column(JSONB)
+    report: Mapped[dict | None] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)

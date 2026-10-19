@@ -186,7 +186,7 @@ def generate_brief(db: Session, scope: str, week_start: date, llm: LLM | None, j
             f"Known data gaps: {facts['data_gaps']}\n\n{wrap_document(json.dumps(facts['facts'], default=str, indent=1), 'computed-facts')}\n\n"
             "Write the highlights now.")
     try:
-        out = llm.structured(system=SYSTEM, user=user, schema=BriefOut, tool_name="submit_brief", max_tokens=5000)
+        out = llm.structured(system=SYSTEM, user=user, schema=BriefOut, tool_name="submit_brief", max_tokens=16000, effort="medium")
     except (LLMError, BudgetExceeded, LLMUnavailable, Exception) as e:  # noqa: BLE001 - AI failure must never fabricate a brief
         brief.status, brief.error = "failed", f"{type(e).__name__}: {e}"[:500]
         brief.summary_note = "Brief unavailable: generation failed."

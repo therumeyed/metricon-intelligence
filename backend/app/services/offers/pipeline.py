@@ -252,7 +252,10 @@ def refresh_flags(db: Session, offer: Offer) -> None:
 
 # --------------------------------------------------------------------------- status
 def _latest_ok(db: Session, source_id: int) -> SourceSnapshot | None:
-    return db.scalar(select(SourceSnapshot).where(SourceSnapshot.source_id == source_id, SourceSnapshot.outcome == "ok")
+    """Latest snapshot that was fetched AND successfully read. A page we fetched but could not extract (model error, budget stop) says
+    nothing about whether an offer is still there, so it must never count as 'crawled and not found'."""
+    return db.scalar(select(SourceSnapshot).where(SourceSnapshot.source_id == source_id, SourceSnapshot.outcome == "ok",
+                                                  SourceSnapshot.extraction_notes["extracted"].as_boolean().is_(True))
                      .order_by(SourceSnapshot.id.desc()).limit(1))
 
 
@@ -521,6 +524,8 @@ def process_source(db: Session, source: Source, snap: SourceSnapshot, llm: LLM |
         page = rules_extract.extract_from_blocks(content_mod.promo_window(blocks), default_year=today_local(now).year, link_map=link_map, single=(source.kind == "offer_detail"))
     page, vnotes = verify_page(page, text)
     notes += vnotes
+    snap.extraction_notes = {"extracted": True, "material_hash": mat_hash}  # read successfully: status checks below must see this snapshot as the latest read
+    db.flush()
     role = "detail" if source.kind == "offer_detail" else "listing"
     seen: list[Offer] = []
     seen_keys: set[int] = set()

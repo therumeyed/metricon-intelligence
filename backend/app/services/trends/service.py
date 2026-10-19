@@ -81,6 +81,34 @@ def geo_label(geo_key: str) -> str:
     return "Australia" if geo_key == "AU" else STATE_NAMES.get(geo_key, geo_key.replace("city:", ""))
 
 
+def _cap_row(db: Session, gk: str) -> TrendCapability:
+    cap = db.scalar(select(TrendCapability).where(TrendCapability.geo_key == gk))
+    if cap is None:
+        cap = TrendCapability(geo_key=gk, geo_level=geo_level(gk), detail={})
+        db.add(cap)
+    return cap
+
+
+def record_capability(db: Session, geo_key: str, *, req: TrendRequest | None = None, unsupported_reason: str | None = None) -> None:
+    """Every real request teaches us what the provider supports for a geography, so the coverage table never depends on a manual test."""
+    cap = _cap_row(db, geo_key)
+    cap.tested_at = now_utc()
+    if unsupported_reason:
+        cap.supported, cap.coverage, cap.detail = False, "none", {"reason": unsupported_reason, "source": "weekly refresh"}
+        return
+    if req is None:
+        return
+    obs = list(db.scalars(select(TrendObservation).where(TrendObservation.request_id == req.id)))
+    vals = [o.value for o in obs if o.value is not None and not o.is_partial]
+    nz = sum(1 for v in vals if v > 0)
+    share = nz / len(vals) if vals else 0
+    cap.location_code, cap.location_name = req.location_code, req.location_name
+    cap.supported = bool(vals)
+    cap.coverage = "none" if not vals or share == 0 else "full" if share >= 0.8 else "sparse"
+    cap.detail = {"points": len(vals), "nonzero_share": round(share, 2), "request_id": req.id, "source": "weekly refresh",
+                  "keywords": req.keywords, "cost_reported": float(req.cost_reported) if req.cost_reported is not None else None}
+
+
 def capability_test(db: Session, client: DataForSEOTrends, geo_keys: list[str], job_run_id: int | None = None) -> list[dict]:
     """Real provider test per geography: does it resolve, and does a generic home-building query return usable data?"""
     results = []
@@ -132,6 +160,7 @@ def fetch_compare(db: Session, client: DataForSEOTrends | None, keywords: list[s
     s = get_settings()
     loc = resolve_location(db, geo_key)
     if loc is None:
+        record_capability(db, geo_key, unsupported_reason="location not present in the provider's Google Trends catalogue for Australia")
         raise ProviderError(f"{geo_key}: location not in provider catalogue (run capability test / sync locations)")
     today = today_local()
     d_to, d_from = today, today - timedelta(days=days)
@@ -165,6 +194,9 @@ def fetch_compare(db: Session, client: DataForSEOTrends | None, keywords: list[s
     if kind == "compare":
         store_observations(db, req, res)
         compute_and_store_metrics(db, req)
+        db.flush()
+        if purpose != "capability":
+            record_capability(db, geo_key, req=req)
     else:
         store_related(db, req, res, keywords[0])
     db.flush()
