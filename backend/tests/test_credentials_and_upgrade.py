@@ -1,5 +1,4 @@
 """What happens when keys are missing, wrong, or arrive later. Synthetic fixtures only."""
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
@@ -8,7 +7,7 @@ from app.models import Brief, CompetitorEvent, JobRun, Offer
 from app.services import events, jobs, llm as llm_mod
 from app.services.offers.schema import PageExtraction
 from tests.helpers import FakeLLM, page
-from tests.test_offers import MAIN, cycle, eo, only_offer, src
+from tests.test_offers import MAIN, cycle, eo, src
 
 H = {"X-Requested-With": "metricon-ui"}
 

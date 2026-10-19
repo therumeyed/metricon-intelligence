@@ -75,6 +75,27 @@ function Jobs() {
   );
 }
 
+function Feeds() {
+  const d = useFetch(`/api/admin/feeds`);
+  const [nu, setNu] = useState({ url: "", label: "" });
+  const [msg, setMsg] = useState("");
+  const add = async (e: FormEvent) => { e.preventDefault(); setMsg("Checking the feed…"); try { const r = await api.post("/api/admin/feeds", { url: nu.url, label: nu.label || null }); setNu({ url: "", label: "" }); d.reload(); setMsg(`Added – found ${r.items_found} items, e.g. “${r.sample[0] ?? ""}”. It is read with the daily news run.`); } catch (x) { setMsg((x as Error).message); } };
+  return (
+    <section className="card stack">
+      <div><h3 style={{ margin: 0 }}>News feeds (RSS / Atom)</h3><p className="small muted" style={{ margin: "2px 0 0" }}>Add a feed that covers the brands – for example a Google Alerts feed set to “deliver to RSS feed”. Items that name a monitored builder show up in Competitor activity; relevant housing news shows in Market conditions. The feed is tested when you add it.</p></div>
+      <form className="row" onSubmit={add} style={{ alignItems: "flex-end" }}>
+        <label className="field" style={{ flex: 1, minWidth: 280 }}>Feed URL<input type="text" value={nu.url} onChange={(e) => setNu({ ...nu, url: e.target.value })} required placeholder="https://www.google.com.au/alerts/feeds/…" /></label>
+        <label className="field">Label<input type="text" value={nu.label} onChange={(e) => setNu({ ...nu, label: e.target.value })} placeholder="All-brands alert" /></label>
+        <button className="btn primary">Add feed</button><span className="small muted">{msg}</span>
+      </form>
+      {d.data?.length > 0 && <div className="tablewrap"><table><thead><tr><th>Feed</th><th>Last read</th><th className="r">Items</th><th>Status</th><th /></tr></thead><tbody>
+        {d.data.map((f: any) => <tr key={f.id} style={{ opacity: f.active ? 1 : .5 }}><td><b>{f.label ?? "Feed"}</b><div className="tiny faint" style={{ wordBreak: "break-all", maxWidth: 420 }}>{f.url}</div></td><td className="small">{fmtDateTime(f.last_fetched_at)}</td><td className="r num">{f.items_last_run ?? "–"}</td>
+          <td>{f.last_error ? <Chip tone="bad">{f.last_error.slice(0, 60)}</Chip> : f.last_fetched_at ? <Chip tone="good">ok</Chip> : <Chip>not read yet</Chip>}</td>
+          <td className="row"><button className="btn sm" onClick={async () => { await api.patch(`/api/admin/feeds/${f.id}`, { active: !f.active }); d.reload(); }}>{f.active ? "Disable" : "Enable"}</button><button className="btn sm" onClick={async () => { await api.del(`/api/admin/feeds/${f.id}`); d.reload(); }}>Remove</button></td></tr>)}</tbody></table></div>}
+    </section>
+  );
+}
+
 function Sources() {
   const d = useFetch(`/api/admin/sources`);
   const brands = useFetch(`/api/admin/brands`);
@@ -107,6 +128,7 @@ function Sources() {
           <td><Chip tone={s.freshness === "fresh" ? "good" : "warn"}>{s.freshness.replace("_", " ")}</Chip></td>
           <td className="row"><button className="btn sm" onClick={async () => { await api.post(`/api/admin/sources/${s.id}/fetch`); setMsg("Fetch queued"); }}>Fetch</button>{!s.query && <button className="btn sm" onClick={() => setPasteFor(s)}>Paste page</button>}
             <button className="btn sm" onClick={async () => { await api.patch(`/api/admin/sources/${s.id}`, { active: !s.active }); d.reload(); }}>{s.active ? "Disable" : "Enable"}</button></td></tr>))}</tbody></table></div>
+      <Feeds />
       {pasteFor && <section className="card"><h3>Add page content as evidence – {pasteFor.url}</h3>
         <p className="small muted">For pages a crawler can’t reach (for example bot-protected pages): open the page in a browser, copy the visible text (or view-source HTML) and paste it here. It is stored as a manual snapshot and goes through the same extraction and review.</p>
         <textarea value={text} onChange={(e) => setText(e.target.value)} style={{ minHeight: 200 }} />

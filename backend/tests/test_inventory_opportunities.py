@@ -1,7 +1,7 @@
 """Page inventory + computed search opportunities. Sitemaps, GSC rows and trend candidates here are SYNTHETIC fixtures."""
 from sqlalchemy import select
 
-from app.models import Brand, RelatedQueryCandidate, SitePage, Theme
+from app.models import RelatedQueryCandidate, SitePage
 from app.services import fetcher, gsc, inventory, opportunities as O
 from tests.helpers import ok_result
 from tests.test_gsc import make_workbook

@@ -1,5 +1,5 @@
 """Theme charts: sparse keywords are not drawn, keyword selection prefers broad terms and retires sparse ones, momentum comes from the busiest usable keyword. SYNTHETIC series."""
-from datetime import date, timedelta
+from datetime import date
 
 from sqlalchemy import select
 

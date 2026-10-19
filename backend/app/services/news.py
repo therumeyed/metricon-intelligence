@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
-from ..models import Brand, BrandAlias, NewsItem, NewsQuery
+from ..models import Brand, BrandAlias, NewsFeed, NewsItem, NewsQuery
 from ..timeutil import now_utc
 from . import fetcher
 from .gsc import state_hint
@@ -64,8 +64,40 @@ def relevance(title: str, snippet: str | None, brand_hit: bool, publisher_domain
     return False, "no residential home-building signal"
 
 
+def unwrap_redirect(link: str) -> str:
+    """Google Alerts / Google News links wrap the real article in ?url=...; use the real address when it is there."""
+    p = urlsplit(link)
+    if p.hostname and p.hostname.endswith("google.com") and p.path.startswith("/url"):
+        for k, v in parse_qsl(p.query):
+            if k in ("url", "q") and v.startswith("http"):
+                return v
+    return link
+
+
+def _atom_entries(root) -> list[dict]:
+    ns = {"a": "http://www.w3.org/2005/Atom"}
+    out = []
+    for e in root.iterfind(".//a:entry", ns):
+        title = re.sub(r"<[^>]+>", "", html.unescape("".join(e.find("a:title", ns).itertext()) if e.find("a:title", ns) is not None else "")).strip()
+        link_el = next((l for l in e.iterfind("a:link", ns) if l.get("rel", "alternate") == "alternate"), None)
+        link = unwrap_redirect(link_el.get("href")) if link_el is not None and link_el.get("href") else ""
+        pub = e.findtext("a:published", namespaces=ns) or e.findtext("a:updated", namespaces=ns)
+        try:
+            from datetime import datetime as _dt
+
+            published = _dt.fromisoformat(pub.replace("Z", "+00:00")).astimezone(timezone.utc) if pub else None
+        except ValueError:
+            published = None
+        content = e.find("a:content", ns)
+        desc = re.sub(r"<[^>]+>", " ", html.unescape("".join(content.itertext()) if content is not None else ""))
+        out.append({"title": title, "link": link, "publisher": None, "publisher_url": link or None, "published": published, "snippet": re.sub(r"\s+", " ", desc).strip()[:400]})
+    return out
+
+
 def parse_feed(xml: bytes) -> list[dict]:
     root = etree.fromstring(xml, parser=etree.XMLParser(recover=True, resolve_entities=False))
+    if root is not None and root.tag.endswith("}feed"):
+        return _atom_entries(root)
     out = []
     for it in root.iter("item"):
         title = (it.findtext("title") or "").strip()
@@ -103,14 +135,57 @@ def resolve_article(link: str) -> tuple[str | None, str | None]:
         return canonical(r.final_url), None
 
 
+def _ingest(db: Session, it: dict, *, alias_map, brand_domains, state: str | None, theme_slug: str | None, brand_hint: int | None, query_id: int | None,
+            out: dict, state_box: dict, max_resolve: int) -> None:
+    tk = title_key(it["title"])
+    if not tk:
+        return
+    low = it["title"].lower()
+    brand_ids = sorted({bid for alias, bid in alias_map if len(alias) > 5 and alias in low} | ({brand_hint} if brand_hint and any(a in low for a, b in alias_map if b == brand_hint) else set()))
+    pub_domain = urlsplit(it["publisher_url"]).hostname if it["publisher_url"] else None
+    keep, why = relevance(it["title"], it["snippet"], bool(brand_ids), pub_domain)
+    existing_title = db.scalar(select(NewsItem).where(NewsItem.title_key == tk))
+    if existing_title is not None:
+        if it["publisher"] and it["publisher"] not in (existing_title.also_reported_by or []) and it["publisher"] != existing_title.publisher:
+            existing_title.also_reported_by = (existing_title.also_reported_by or []) + [it["publisher"]]
+        if query_id is not None and query_id not in (existing_title.query_ids or []):
+            existing_title.query_ids = (existing_title.query_ids or []) + [query_id]
+        out["duplicates"] += 1
+        return
+    url = canonical(it["link"])
+    if db.scalar(select(NewsItem.id).where(NewsItem.canonical_url == url)):
+        out["duplicates"] += 1
+        return
+    item = NewsItem(canonical_url=url, title=it["title"], title_key=tk, publisher=it["publisher"], publisher_domain=pub_domain,
+                    source_class=classify_source(pub_domain, brand_domains), published_at=it["published"], retrieved_at=now_utc(),
+                    snippet=it["snippet"], evidence_level="headline_only", state=state or state_hint(low), brand_ids=brand_ids,
+                    theme_slug=theme_slug, relevance="kept" if keep else "excluded", relevance_reason=why, query_ids=[query_id] if query_id is not None else [])
+    if keep and state_box["resolved"] < max_resolve:
+        final, excerpt = resolve_article(it["link"])
+        state_box["resolved"] += 1
+        if final and excerpt:
+            item.resolved_url, item.body_excerpt, item.evidence_level = final, excerpt, "article"
+            item.canonical_url = final if not db.scalar(select(NewsItem.id).where(NewsItem.canonical_url == final)) else item.canonical_url
+            out["resolved"] += 1
+    db.add(item)
+    db.flush()
+    out["new" if keep else "excluded"] += 1
+
+
+def fetch_feed(client: httpx.Client, url: str) -> list[dict]:
+    r = client.get(url)
+    r.raise_for_status()
+    return parse_feed(r.content)[:100]
+
+
 def collect(db: Session, max_resolve: int = 15) -> dict:
     brands = list(db.scalars(select(Brand)))
     brand_domains = {d for b in brands for d in (b.official_domains or [])}
     alias_map: list[tuple[str, int]] = []
     for a in db.scalars(select(BrandAlias)):
         alias_map.append((a.alias.lower(), a.brand_id))
-    out = {"queries": 0, "new": 0, "duplicates": 0, "excluded": 0, "errors": [], "resolved": 0}
-    resolved = 0
+    out = {"queries": 0, "feeds": 0, "new": 0, "duplicates": 0, "excluded": 0, "errors": [], "resolved": 0}
+    box = {"resolved": 0}
     with httpx.Client(timeout=25.0, headers={"User-Agent": fetcher.user_agent()}, follow_redirects=True) as client:
         for q in db.scalars(select(NewsQuery).where(NewsQuery.active.is_(True))):
             try:
@@ -120,40 +195,59 @@ def collect(db: Session, max_resolve: int = 15) -> dict:
                 continue
             out["queries"] += 1
             for it in items:
-                tk = title_key(it["title"])
-                if not tk:
-                    continue
-                low = it["title"].lower()
-                brand_ids = sorted({bid for alias, bid in alias_map if len(alias) > 5 and alias in low} | ({q.brand_id} if q.brand_id and any(a in low for a, b in alias_map if b == q.brand_id) else set()))
-                pub_domain = urlsplit(it["publisher_url"]).hostname if it["publisher_url"] else None
-                keep, why = relevance(it["title"], it["snippet"], bool(brand_ids), pub_domain)
-                existing_title = db.scalar(select(NewsItem).where(NewsItem.title_key == tk))
-                if existing_title is not None:
-                    if it["publisher"] and it["publisher"] not in (existing_title.also_reported_by or []) and it["publisher"] != existing_title.publisher:
-                        existing_title.also_reported_by = (existing_title.also_reported_by or []) + [it["publisher"]]
-                    if q.id not in (existing_title.query_ids or []):
-                        existing_title.query_ids = (existing_title.query_ids or []) + [q.id]
-                    out["duplicates"] += 1
-                    continue
-                url = canonical(it["link"])
-                if db.scalar(select(NewsItem.id).where(NewsItem.canonical_url == url)):
-                    out["duplicates"] += 1
-                    continue
-                item = NewsItem(canonical_url=url, title=it["title"], title_key=tk, publisher=it["publisher"], publisher_domain=pub_domain,
-                                source_class=classify_source(pub_domain, brand_domains), published_at=it["published"], retrieved_at=now_utc(),
-                                snippet=it["snippet"], evidence_level="headline_only", state=q.state or state_hint(low), brand_ids=brand_ids,
-                                theme_slug=q.theme_slug, relevance="kept" if keep else "excluded", relevance_reason=why, query_ids=[q.id])
-                if keep and resolved < max_resolve:
-                    final, excerpt = resolve_article(it["link"])
-                    resolved += 1
-                    if final and excerpt:
-                        item.resolved_url, item.body_excerpt, item.evidence_level = final, excerpt, "article"
-                        item.canonical_url = final if not db.scalar(select(NewsItem.id).where(NewsItem.canonical_url == final)) else item.canonical_url
-                        out["resolved"] += 1
-                db.add(item)
-                out["new" if keep else "excluded"] += 1
+                _ingest(db, it, alias_map=alias_map, brand_domains=brand_domains, state=q.state, theme_slug=q.theme_slug, brand_hint=q.brand_id, query_id=q.id, out=out, state_box=box, max_resolve=max_resolve)
             db.commit()
+        for feed in db.scalars(select(NewsFeed).where(NewsFeed.active.is_(True))):
+            before = out["new"]
+            try:
+                items = fetch_feed(client, feed.url)
+            except Exception as e:  # noqa: BLE001
+                feed.last_fetched_at, feed.last_error = now_utc(), f"{type(e).__name__}: {e}"[:300]
+                out["errors"].append({"feed": feed.label or feed.url, "error": feed.last_error[:160]})
+                db.commit()
+                continue
+            out["feeds"] += 1
+            for it in items:
+                _ingest(db, it, alias_map=alias_map, brand_domains=brand_domains, state=feed.state, theme_slug=None, brand_hint=None, query_id=None, out=out, state_box=box, max_resolve=max_resolve)
+            feed.last_fetched_at, feed.last_error, feed.items_last_run = now_utc(), None, len(items)
+            db.commit()
+    out["events"] = events_from_news(db)
+    db.commit()
     return out
+
+
+def events_from_news(db: Session, days: int = 45) -> int:
+    """Kept headlines that name a monitored builder become competitor-activity events (headline only, dated by the publisher). One event per story across every channel."""
+    from datetime import timedelta
+
+    from ..models import CompetitorEvent
+    from . import events as events_mod
+    from .serp.activity import event_key
+
+    now = now_utc()
+    brands = {b.id: b for b in db.scalars(select(Brand))}
+    since = now - timedelta(days=days)
+    known: dict[int, set[str]] = {}
+    for e in db.scalars(select(CompetitorEvent).where(CompetitorEvent.origin != "crawl", CompetitorEvent.observed_at >= since - timedelta(days=days))):
+        known.setdefault(e.brand_id, set()).add(title_key(e.title))
+    made = 0
+    for n in db.scalars(select(NewsItem).where(NewsItem.relevance == "kept", NewsItem.brand_ids != [], NewsItem.retrieved_at >= since)):
+        for bid in n.brand_ids:
+            b = brands.get(bid)
+            tk = title_key(n.title)
+            if b is None or tk in known.get(bid, set()):
+                continue
+            if n.published_at and (now - n.published_at) > timedelta(days=days):
+                continue
+            ev = events_mod.emit(db, key=event_key(b, n.resolved_url or n.canonical_url), brand=b, event_type="news_mention", title=n.title[:300], source=None, summary=n.snippet or None,
+                                 state=n.state, evidence=[{"field": "news", "excerpt": (n.snippet or n.title)[:400], "source_url": n.resolved_url or n.canonical_url, "publisher": n.publisher}], now=now)
+            if ev is None:
+                continue
+            ev.origin, ev.published_at, ev.source_url = "rss", n.published_at, n.resolved_url or n.canonical_url
+            ev.after = {"publisher": n.publisher, "note": "Headline and snippet as returned by the news feed; not interpreted."}
+            known.setdefault(bid, set()).add(tk)
+            made += 1
+    return made
 
 
 def reclassify(db: Session) -> dict:

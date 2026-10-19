@@ -313,6 +313,77 @@ def search_create(body: SearchIn, db: Session = Depends(get_db), me: AppUser = D
     return {"id": src.id}
 
 
+class FeedIn(BaseModel):
+    url: str
+    label: Optional[str] = None
+    state: Optional[str] = None
+
+
+@router.get("/feeds")
+def feeds(db: Session = Depends(get_db)):
+    from ..models import NewsFeed
+
+    return [{"id": f.id, "url": f.url, "label": f.label, "state": f.state, "active": f.active, "last_fetched_at": f.last_fetched_at, "last_error": f.last_error, "items_last_run": f.items_last_run}
+            for f in db.scalars(select(NewsFeed).order_by(NewsFeed.id))]
+
+
+@router.post("/feeds")
+def feed_create(body: FeedIn, db: Session = Depends(get_db), me: AppUser = Depends(auth.current_user)):
+    """Add an RSS/Atom feed (for example a Google Alerts feed covering every brand). It is tested first so a bad URL is refused straight away."""
+    import httpx
+
+    from ..models import NewsFeed
+    from ..services import fetcher, news
+
+    url = body.url.strip()
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(400, "feed URL must be http(s)")
+    if db.scalar(select(NewsFeed.id).where(NewsFeed.url == url)):
+        raise HTTPException(400, "this feed is already added")
+    try:
+        with httpx.Client(timeout=25.0, headers={"User-Agent": fetcher.user_agent()}, follow_redirects=True) as c:
+            items = news.fetch_feed(c, url)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"could not read that feed: {type(e).__name__}: {str(e)[:160]}")
+    if not items:
+        raise HTTPException(400, "the address answered, but no RSS/Atom items were found in it")
+    f = NewsFeed(url=url, label=(body.label or "").strip()[:160] or None, state=(body.state or None))
+    db.add(f)
+    db.flush()
+    audit(db, me, "feed.create", "news_feed", f.id, after={"url": url})
+    db.commit()
+    return {"id": f.id, "items_found": len(items), "sample": [i["title"] for i in items[:3]]}
+
+
+@router.patch("/feeds/{fid}")
+def feed_patch(fid: int, body: dict, db: Session = Depends(get_db), me: AppUser = Depends(auth.current_user)):
+    from ..models import NewsFeed
+
+    f = db.get(NewsFeed, fid)
+    if not f:
+        raise HTTPException(404)
+    if "active" in body:
+        f.active = bool(body["active"])
+    if "label" in body:
+        f.label = (body["label"] or None)
+    audit(db, me, "feed.update", "news_feed", fid, after=body)
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/feeds/{fid}")
+def feed_delete(fid: int, db: Session = Depends(get_db), me: AppUser = Depends(auth.current_user)):
+    from ..models import NewsFeed
+
+    f = db.get(NewsFeed, fid)
+    if not f:
+        raise HTTPException(404)
+    db.delete(f)
+    audit(db, me, "feed.delete", "news_feed", fid)
+    db.commit()
+    return {"ok": True}
+
+
 @router.post("/sources/{sid}/fetch")
 def source_fetch(sid: int, db: Session = Depends(get_db), me: AppUser = Depends(auth.current_user)):
     src = db.get(Source, sid)

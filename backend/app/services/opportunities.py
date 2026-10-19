@@ -7,14 +7,13 @@ Two honest limits are carried into every result:
 """
 from __future__ import annotations
 
-import re
 from collections import defaultdict
 from datetime import timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import GscImport, GscPageRow, GscQueryRow, RelatedQueryCandidate, SitePage, Theme
+from ..models import GscImport, GscQueryRow, RelatedQueryCandidate, SitePage, Theme
 from ..timeutil import now_utc
 from . import inventory
 

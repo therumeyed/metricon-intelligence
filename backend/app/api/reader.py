@@ -74,7 +74,6 @@ _OPP_CACHE: dict = {}
 def _opportunities(db: Session, scope: str) -> dict:
     import time
 
-    from ..services import analysis as AN
     from ..services import opportunities as O
 
     hit = _OPP_CACHE.get(scope)

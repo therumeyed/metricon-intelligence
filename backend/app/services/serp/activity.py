@@ -127,6 +127,9 @@ def process_news_source(db: Session, source: Source, snap: SourceSnapshot, llm: 
     items = fetcher.effective_links(db, snap)
     first_capture = db.scalar(select(SourceSnapshot.id).where(SourceSnapshot.source_id == source.id, SourceSnapshot.outcome == "ok", SourceSnapshot.id < snap.id).limit(1)) is None
     terms = brand_terms(db, brand)
+    from ..news import title_key
+
+    known_titles = {title_key(e.title) for e in db.scalars(select(CompetitorEvent).where(CompetitorEvent.brand_id == brand.id, CompetitorEvent.origin != "crawl"))}
     dismissed = list((source.context or {}).get("dismissed", []))
     res = {"items": len(items), "new_events": 0, "skipped_old": 0, "skipped_not_brand": 0, "judged": 0}
     fresh = []
@@ -134,6 +137,8 @@ def process_news_source(db: Session, source: Source, snap: SourceSnapshot, llm: 
         k = event_key(brand, it["href"])
         if db.scalar(select(CompetitorEvent.id).where(CompetitorEvent.event_key == k)) or k in dismissed:
             continue
+        if title_key(it["text"]) in known_titles:
+            continue  # the same story already arrived through another channel
         pub = _parse_dt(it.get("published_at"))
         if pub is not None and (now - pub) > timedelta(days=MAX_AGE_DAYS):
             res["skipped_old"] += 1
