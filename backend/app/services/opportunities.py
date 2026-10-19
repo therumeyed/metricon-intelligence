@@ -157,7 +157,7 @@ def new_searches(db: Session, imp_id: int | None, limit: int = 30) -> list[dict]
     since = now_utc() - timedelta(days=21)
     cands = list(db.scalars(select(RelatedQueryCandidate).where(RelatedQueryCandidate.relevant.is_(True), RelatedQueryCandidate.kind == "rising",
                                                                  RelatedQueryCandidate.review_status != "rejected").order_by(RelatedQueryCandidate.value.desc().nullslast()).limit(150)))
-    rows = _qrows(db, imp_id, branded=None) if imp_id else []
+    rows = [(r, set(inventory.tokens(r.query))) for r in (_qrows(db, imp_id, branded=None) if imp_id else [])]
     pages = list(db.scalars(select(SitePage)))
     out, seen = [], set()
     for c in cands:
@@ -165,7 +165,7 @@ def new_searches(db: Session, imp_id: int | None, limit: int = 30) -> list[dict]
             continue
         seen.add(c.query)
         toks = set(inventory.tokens(c.query))
-        match = [r for r in rows if toks and toks <= set(inventory.tokens(r.query))]
+        match = [r for r, rt in rows if toks and toks <= rt]
         imp = sum(r.impressions for r in match)
         pos = (sum(r.position * r.impressions for r in match) / imp) if imp else None
         cov = inventory.page_coverage(db, c.query, pages=pages)

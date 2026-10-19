@@ -395,6 +395,32 @@ def generate_briefs(ctx: JobContext) -> dict:
     return out
 
 
+@job("generate_analysis")
+def generate_analysis(ctx: JobContext) -> dict:
+    """AI analysis and recommendations per scope. Computed opportunity tables do not depend on this job; AI failure leaves the previous report visible."""
+    from .services import analysis as AN
+    from .timeutil import monday_of, today_local
+
+    week = monday_of(today_local())
+    if not llm_mod.available():
+        return {"_status": "skipped", "not_connected": llm_mod.status().get("reason"), "week_start": week.isoformat()}
+    out = {"week_start": week.isoformat(), "reports": {}, "errors": []}
+    scopes = [ctx.params["scope"]] if ctx.params.get("scope") else AN.SCOPES
+    with session_scope() as db:
+        llm = llm_mod.LLM(db, ctx.run_id)
+        for scope in scopes:
+            try:
+                r = AN.generate(db, scope, week, llm, ctx.run_id)
+                db.commit()
+                out["reports"][scope] = {"status": r.status, "recommendations": len((r.report or {}).get("recommendations", [])), "dropped": len((r.report or {}).get("dropped", [])), "error": r.error}
+                if r.status != "ok":
+                    out["errors"].append({"scope": scope, "error": r.error})
+            except Exception as e:  # noqa: BLE001
+                db.rollback()
+                out["errors"].append({"scope": scope, "error": f"{type(e).__name__}: {e}"[:200]})
+    return out
+
+
 @job("import_gsc")
 def import_gsc(ctx: JobContext) -> dict:
     """Import an uploaded GSC workbook (idempotent), map themes with rules, and propose representative terms."""

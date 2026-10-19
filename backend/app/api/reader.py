@@ -67,6 +67,40 @@ def meta(db: Session = Depends(get_db)):
     }
 
 
+# --------------------------------------------------------------------------- AI analysis + search opportunities
+_OPP_CACHE: dict = {}
+
+
+def _opportunities(db: Session, scope: str) -> dict:
+    import time
+
+    from ..services import analysis as AN
+    from ..services import opportunities as O
+
+    hit = _OPP_CACHE.get(scope)
+    if hit and time.time() - hit[0] < 120:
+        return hit[1]
+    opp = O.compute(db)
+    st = None if scope == "AU" else scope
+    pick = lambda items, key="state_hint": items if st is None else [i for i in items if i.get(key) in (st, None)]  # noqa: E731
+    val = {"gsc_available": opp["gsc_available"], "period": opp.get("period"), "gaps": opp["gaps"], "inventory": {k: v for k, v in opp["inventory"].items() if k != "paths"},
+           "theme_scorecard": opp["theme_scorecard"], "quick_wins": pick(opp["quick_wins"]), "low_ctr": pick(opp["low_ctr"]),
+           "content_gaps": [g for g in opp["content_gaps"] if st is None or g["state"] == st], "topic_visibility": pick(opp["topic_visibility"]), "new_searches": opp["new_searches"]}
+    _OPP_CACHE[scope] = (time.time(), val)
+    return val
+
+
+@router.get("/analysis")
+def analysis(scope: str = "AU", db: Session = Depends(get_db)):
+    from ..services import analysis as AN
+    from ..services import llm as llm_mod
+
+    sc = _geo(scope)
+    running = db.scalar(select(JobRun).where(JobRun.job_name == "generate_analysis", JobRun.status.in_(["queued", "running"])).order_by(JobRun.id.desc()).limit(1))
+    return {**AN.current(db, sc), "computed": _opportunities(db, sc), "ai_connected": llm_mod.available(), "generating": running is not None,
+            "note": "Search Console shows Metricon's own visibility only. Google Trends is relative interest, not volume."}
+
+
 # --------------------------------------------------------------------------- brief
 @router.get("/brief")
 def brief(scope: str = "AU", db: Session = Depends(get_db)):

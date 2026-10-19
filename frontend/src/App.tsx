@@ -6,6 +6,7 @@ import Demand from "./views/Demand";
 import Offers from "./views/Offers";
 import Activity from "./views/Activity";
 import Conditions from "./views/Conditions";
+import Analysis from "./views/Analysis";
 import Admin from "./views/Admin";
 
 export type Geo = "AU" | "VIC" | "NSW" | "QLD" | "SA";
@@ -20,6 +21,7 @@ const VIEWS = [
   { path: "/offers", label: "Offers in market" },
   { path: "/activity", label: "Competitor activity" },
   { path: "/conditions", label: "Market conditions" },
+  { path: "/analysis", label: "AI analysis" },
 ];
 const GEOS: { code: Geo; label: string; title: string }[] = [
   { code: "AU", label: "Australia", title: "National context" },
@@ -94,6 +96,7 @@ export default function App() {
         {path.startsWith("/offers") && <Offers />}
         {path.startsWith("/activity") && <Activity />}
         {path.startsWith("/conditions") && <Conditions />}
+        {path.startsWith("/analysis") && <Analysis />}
         {path.startsWith("/admin") && (isAdmin ? <Admin /> : <Banner tone="bad">Administrator access required.</Banner>)}
       </main>
     </AppCtx.Provider>

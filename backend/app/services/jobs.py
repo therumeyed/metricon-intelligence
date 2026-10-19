@@ -161,7 +161,7 @@ class Schedule:
 
 
 DAILY_PIPELINE = ["collect_sources", "collect_search", "extract_offers", "detect_events", "analyse_activity", "collect_news", "check_macro"]
-WEEKLY_PIPELINE = ["refresh_site_inventory", "refresh_trends", "discover_related", "generate_briefs"]
+WEEKLY_PIPELINE = ["refresh_site_inventory", "refresh_trends", "discover_related", "generate_briefs", "generate_analysis"]
 SCHEDULES = [
     Schedule("collect_sources", "daily", 5),
     Schedule("collect_search", "daily", 5),
@@ -174,6 +174,7 @@ SCHEDULES = [
     Schedule("refresh_trends", "weekly", 4, 0),
     Schedule("discover_related", "weekly", 4, 0),
     Schedule("generate_briefs", "weekly", 8, 0),
+    Schedule("generate_analysis", "weekly", 8, 0),
 ]
 
 
