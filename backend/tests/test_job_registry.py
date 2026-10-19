@@ -2,7 +2,7 @@
 import subprocess
 import sys
 
-EXPECTED = {"collect_sources", "extract_offers", "detect_events", "collect_news", "check_macro", "refresh_trends", "discover_related", "generate_briefs", "trends_capability", "import_gsc", "classify_gsc"}
+EXPECTED = {"collect_sources", "collect_search", "analyse_activity", "refresh_site_inventory", "generate_analysis", "extract_offers", "detect_events", "collect_news", "check_macro", "refresh_trends", "discover_related", "generate_briefs", "trends_capability", "import_gsc", "classify_gsc"}
 
 
 def test_importing_only_the_web_app_registers_all_jobs():

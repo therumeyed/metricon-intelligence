@@ -99,6 +99,12 @@ def build_facts(db: Session, scope: str, week: date) -> dict:
     brief_facts = B.gather_facts(db, scope, week)
     opp = O.compute(db)
     facts = list(brief_facts["facts"])
+    from . import macro as MC
+
+    cr = MC.conditions(db, scope)
+    facts.append({"id": f"conditions:{scope}", "kind": "market_conditions_read", "summary": cr["summary"],
+                  "indicators": [{"indicator": i["indicator"], "geography": i["geography"], "stance": i["stance"], "basis": i["basis"]} for i in cr["items"]],
+                  "note": cr["note"]})
     gaps = list(brief_facts["data_gaps"]) + list(opp["gaps"])
     facts += opp["theme_scorecard"]
     facts += _for_scope(opp["quick_wins"], scope)

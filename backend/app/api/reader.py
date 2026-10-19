@@ -257,11 +257,52 @@ def macro_view(geo: str = "AU", db: Session = Depends(get_db)):
                       "Approvals are private-sector houses (original data); the PPI is a house-construction OUTPUT index. Neither is an input-cost index."]}
 
 
+@router.get("/macro/conditions")
+def macro_conditions(geo: str = "AU", db: Session = Depends(get_db)):
+    from ..services import macro as MC
+
+    return MC.conditions(db, _geo(geo))
+
+
+@router.get("/macro/compare")
+def macro_compare(db: Session = Depends(get_db)):
+    from ..services import macro as MC
+
+    return MC.compare_states(db)
+
+
+@router.get("/macro/calendar")
+def macro_calendar(db: Session = Depends(get_db)):
+    from ..services import macro as MC
+
+    return MC.release_calendar(db)
+
+
+TOPICS = [
+    ("rates", "Rates & lending", r"\b(rba|reserve bank|cash rate|interest rate|rate (cut|hike|rise)|mortgage|home loan|lending|lender|borrow|repayment|apra)\b"),
+    ("policy", "Policy & grants", r"\b(grant|stamp duty|first home|scheme|government|minister|policy|budget|planning|zoning|reform|legislation|tax|incentive|federal|state government)\b"),
+    ("costs", "Costs & supply", r"\b(cost|price[sd]?|inflation|materials|labour|shortage|supply chain|insolven|liquidat|collapse|timber|steel|trades|wages)\b"),
+    ("activity", "Building activity & demand", r"\b(approvals?|commencements?|construction|housing (starts|supply|demand|market)|building (activity|industry)|new homes|dwelling|house prices?|auction|sales volumes?)\b"),
+]
+
+
+def topic_of(title: str) -> tuple[str, str]:
+    import re as _re
+
+    for key, label, rx in TOPICS:
+        if _re.search(rx, title, _re.I):
+            return key, label
+    return "other", "Other housing news"
+
+
 @router.get("/news")
-def news(state: str | None = None, limit: int = 30, db: Session = Depends(get_db)):
+def news(state: str | None = None, limit: int = 30, topic: str | None = None, db: Session = Depends(get_db)):
     q = select(NewsItem).where(NewsItem.relevance == "kept").order_by(NewsItem.published_at.desc().nullslast()).limit(min(limit, 100))
     if state and state.upper() != "AU":
         q = q.where((NewsItem.state == state.upper()) | NewsItem.state.is_(None))
-    return [{"id": n.id, "title": n.title, "publisher": n.publisher, "published_at": n.published_at, "retrieved_at": n.retrieved_at, "event_date": n.event_date,
+    rows = list(db.scalars(q))
+    if topic:
+        rows = [n for n in rows if topic_of(n.title)[0] == topic]
+    return [{"id": n.id, "topic": topic_of(n.title)[0], "topic_label": topic_of(n.title)[1], "title": n.title, "publisher": n.publisher, "published_at": n.published_at, "retrieved_at": n.retrieved_at, "event_date": n.event_date,
              "url": n.resolved_url or n.canonical_url, "source_class": n.source_class, "evidence_level": n.evidence_level, "state": n.state, "also_reported_by": n.also_reported_by,
-             "label": "Headline only" if n.evidence_level == "headline_only" else "Article"} for n in db.scalars(q)]
+             "label": "Headline only" if n.evidence_level == "headline_only" else "Article"} for n in rows]
