@@ -286,6 +286,19 @@ def brand_term(db: Session, brand: Brand) -> str:
     return alias or brand.name.lower()
 
 
+BROAD_SEEDS = ["home builders", "house and land packages", "display homes", "knockdown rebuild", "dual occupancy"]
+
+
+def discovery_seeds(db: Session) -> list[str]:
+    """Broad market seeds plus the head term of every active theme, so 'what are people newly searching for' covers each theme."""
+    seeds = list(BROAD_SEEDS)
+    for t in db.scalars(select(Theme).where(Theme.active.is_(True)).order_by(Theme.sort_order)):
+        kws = sorted((k for k in t.keywords if len(k.keyword.split()) <= 4), key=lambda k: (-(k.gsc_impressions or 0), not k.tracked))
+        if kws and kws[0].keyword not in seeds:
+            seeds.append(kws[0].keyword)
+    return seeds
+
+
 def build_default_plans(db: Session) -> int:
     """Create (never overwrite) refresh plans. Pilot plans are active; the rest are created inactive until an admin enables them."""
     created = 0

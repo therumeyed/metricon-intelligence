@@ -336,12 +336,12 @@ def discover_related(ctx: JobContext) -> dict:
     client, why = _trends_client()
     if client is None:
         return {"_status": "skipped", "not_connected": why}
-    seeds = ctx.params.get("seeds") or ["home builders", "house and land packages", "display homes", "knockdown rebuild", "dual occupancy"]
     out = {"requests": 0, "proposed": 0, "errors": []}
     with session_scope() as db:
-        for seed in seeds[: int(ctx.params.get("limit", 5))]:
+        seeds = ctx.params.get("seeds") or T.discovery_seeds(db)
+        for seed in seeds[: int(ctx.params.get("limit", 30))]:
             try:
-                T.fetch_compare(db, client, [seed], "AU", days=365, purpose="discover", job_run_id=ctx.run_id, kind="discover", requests_so_far=out["requests"])
+                T.fetch_compare(db, client, [seed], "AU", days=90, purpose="discover", job_run_id=ctx.run_id, kind="discover", requests_so_far=out["requests"])
                 out["requests"] += 1
                 db.commit()
             except spend.BudgetExceeded as e:
@@ -352,6 +352,21 @@ def discover_related(ctx: JobContext) -> dict:
                 out["errors"].append({"seed": seed, "error": str(e)[:160]})
         from .models import RelatedQueryCandidate
         out["proposed"] = db.scalar(select(func.count()).select_from(RelatedQueryCandidate).where(RelatedQueryCandidate.review_status == "proposed")) or 0
+    return out
+
+
+@job("refresh_site_inventory")
+def refresh_site_inventory(ctx: JobContext) -> dict:
+    """Which pages already exist on Metricon's site (sitemap + Search Console pages). Used so recommendations never repeat an existing page."""
+    from .services import inventory
+
+    with session_scope() as db:
+        out = inventory.refresh_from_gsc(db)
+        db.commit()
+        if not ctx.params.get("gsc_only"):
+            out.update(inventory.refresh_from_sitemap(db))
+        if out.get("errors"):
+            out["_status"] = "partial"
     return out
 
 
@@ -397,6 +412,9 @@ def import_gsc(ctx: JobContext) -> dict:
                                     period_end=_date.fromisoformat(p["period_end"]) if p.get("period_end") else None, period_note=p.get("period_note"))
             if r["created"]:
                 r["terms"] = gsc.propose_representative_terms(db, r["import_id"])
+                from .services import inventory
+
+                r["inventory"] = inventory.refresh_from_gsc(db, r["import_id"])
         return r
     finally:
         try:
