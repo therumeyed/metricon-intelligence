@@ -52,9 +52,9 @@ def spent(db: Session, provider: str) -> dict:
     return out
 
 
-def check_dataforseo(db: Session, est: float, requests_this_job: int) -> None:
+def check_dataforseo(db: Session, est: float, requests_this_job: int, max_requests: int | None = None) -> None:
     lim = limits(db)
-    if requests_this_job >= lim["dataforseo_max_requests_per_job"]:
+    if requests_this_job >= (max_requests or lim["dataforseo_max_requests_per_job"]):
         raise BudgetExceeded("per-job DataForSEO request limit reached")
     sp = spent(db, "dataforseo")
     # use the larger of reported / estimated so an estimate never hides real spend

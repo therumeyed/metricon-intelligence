@@ -82,6 +82,8 @@ function Sources() {
   const [text, setText] = useState("");
   const [msg, setMsg] = useState("");
   const [nu, setNu] = useState({ brand_slug: "", kind: "offer_listing", url: "", state: "" });
+  const [ns, setNs] = useState({ brand_slug: "", kind: "offers", query: "" });
+  const addSearch = async (e: FormEvent) => { e.preventDefault(); try { await api.post("/api/admin/searches", ns); setNs({ ...ns, query: "" }); d.reload(); setMsg("Search added – it runs with the next daily collection, or press Fetch on its row"); } catch (x) { setMsg((x as Error).message); } };
   const add = async (e: FormEvent) => { e.preventDefault(); try { await api.post("/api/admin/sources", { ...nu, state: nu.state || null }); setNu({ ...nu, url: "" }); d.reload(); setMsg("Added"); } catch (x) { setMsg((x as Error).message); } };
   if (!d.data) return d.error ? <ErrorBox message={d.error} /> : <Loading />;
   return (
@@ -93,11 +95,17 @@ function Sources() {
         <label className="field" style={{ flex: 1, minWidth: 260 }}>URL<input type="text" value={nu.url} onChange={(e) => setNu({ ...nu, url: e.target.value })} required /></label>
         <button className="btn primary">Add source</button><span className="small muted">{msg}</span>
       </form>
-      <div className="tablewrap"><table><thead><tr><th>Brand</th><th>Kind</th><th>URL</th><th>State</th><th>Last outcome</th><th>Last success</th><th>Health</th><th /></tr></thead><tbody>
-        {d.data.map((s: any) => (<tr key={s.id} style={{ opacity: s.active ? 1 : .5 }}><td>{s.brand}</td><td className="small">{s.kind}</td><td className="small" style={{ maxWidth: 360, wordBreak: "break-all" }}><a href={s.url} target="_blank" rel="noreferrer noopener">{s.url}</a>{s.notes && <div className="tiny faint">{s.notes}</div>}</td><td>{s.state ?? "–"}</td>
+      <form className="card row" onSubmit={addSearch} style={{ alignItems: "flex-end" }}>
+        <label className="field">Brand<select value={ns.brand_slug} onChange={(e) => setNs({ ...ns, brand_slug: e.target.value })} required><option value="">Choose…</option>{brands.data?.map((b: any) => <option key={b.slug} value={b.slug}>{b.name}</option>)}</select></label>
+        <label className="field">Google search for<select value={ns.kind} onChange={(e) => setNs({ ...ns, kind: e.target.value })}><option value="offers">Offers (own-site results)</option><option value="news">News (activity)</option></select></label>
+        <label className="field" style={{ flex: 1, minWidth: 260 }}>Search text<input type="text" value={ns.query} maxLength={120} placeholder="e.g. Metricon first home buyer offer" onChange={(e) => setNs({ ...ns, query: e.target.value })} required /></label>
+        <button className="btn primary">Add search</button><span className="small faint">About $0.002 per search per day. No <code>site:</code> operators.</span>
+      </form>
+      <div className="tablewrap"><table><thead><tr><th>Brand</th><th>Kind</th><th>URL / search</th><th>State</th><th>Last outcome</th><th>Last success</th><th>Health</th><th /></tr></thead><tbody>
+        {d.data.map((s: any) => (<tr key={s.id} style={{ opacity: s.active ? 1 : .5 }}><td>{s.brand}</td><td className="small">{s.kind}</td><td className="small" style={{ maxWidth: 360, wordBreak: "break-all" }}>{s.query ? <><b>“{s.query}”</b> <a className="tiny" href={s.url} target="_blank" rel="noreferrer noopener">view on Google</a></> : <a href={s.url} target="_blank" rel="noreferrer noopener">{s.url}</a>}{s.notes && <div className="tiny faint">{s.notes}</div>}</td><td>{s.state ?? "–"}</td>
           <td><Chip tone={s.last_outcome === "ok" ? "good" : s.last_outcome ? "bad" : undefined}>{s.last_outcome ?? "never"}</Chip>{s.last_error && <div className="tiny faint" style={{ maxWidth: 220 }}>{s.last_error}</div>}</td><td className="small">{fmtDateTime(s.last_success_at)}</td>
           <td><Chip tone={s.freshness === "fresh" ? "good" : "warn"}>{s.freshness.replace("_", " ")}</Chip></td>
-          <td className="row"><button className="btn sm" onClick={async () => { await api.post(`/api/admin/sources/${s.id}/fetch`); setMsg("Fetch queued"); }}>Fetch</button><button className="btn sm" onClick={() => setPasteFor(s)}>Paste page</button>
+          <td className="row"><button className="btn sm" onClick={async () => { await api.post(`/api/admin/sources/${s.id}/fetch`); setMsg("Fetch queued"); }}>Fetch</button>{!s.query && <button className="btn sm" onClick={() => setPasteFor(s)}>Paste page</button>}
             <button className="btn sm" onClick={async () => { await api.patch(`/api/admin/sources/${s.id}`, { active: !s.active }); d.reload(); }}>{s.active ? "Disable" : "Enable"}</button></td></tr>))}</tbody></table></div>
       {pasteFor && <section className="card"><h3>Add page content as evidence – {pasteFor.url}</h3>
         <p className="small muted">For pages a crawler can’t reach (for example bot-protected pages): open the page in a browser, copy the visible text (or view-source HTML) and paste it here. It is stored as a manual snapshot and goes through the same extraction and review.</p>

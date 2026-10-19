@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from ..llm import LLM, wrap_document
 from .schema import Eligibility, OfferDates, PageExtraction
 
-PROMPT_VERSION = "offer-extract-2026-10-a"
+PROMPT_VERSION = "offer-extract-2026-10-b"
 
 SYSTEM = """You extract home-builder promotions from public web pages for a market-intelligence tool used by Metricon's marketing and sales teams.
 
@@ -27,6 +27,17 @@ Rules - follow all of them:
 11. If nothing on the page is a current offer, return an empty offers list. If the page says an offer is withdrawn/ended, set withdrawn_explicit with the quote."""
 
 
+SERP_NOTE = """
+
+THIS DOCUMENT IS NOT A WEB PAGE. It is the title, result URL and snippet of Google search results taken from the brand's own website for the search "{query}". Snippets are short and often cut off mid-sentence. Extra rules:
+- Report an offer only if a result's title or snippet itself states a promotion, benefit, price or incentive. A result that only describes the brand, a design or a display home is not an offer.
+- Evidence quotes must be copied from a result's title or snippet.
+- Do not assume terms, eligibility, geography or dates that are not printed. Say what is missing in `unresolved`.
+- Set detail_url to the "Result URL" of the result the offer came from (choose from the LINKS list).
+- The same campaign appearing in several results, or worded slightly differently, is ONE entry.
+- Snippets rarely carry full conditions. Do not guess them."""
+
+
 class TermsEnrichment(BaseModel):
     eligibility: Eligibility = Field(default_factory=Eligibility)
     dates: OfferDates = Field(default_factory=OfferDates)
@@ -35,7 +46,7 @@ class TermsEnrichment(BaseModel):
     still_unresolved: list[str] = Field(default_factory=list)
 
 
-def extract_page(llm: LLM, *, brand: str, url: str, text: str, links: list[dict], context: dict, observed: date) -> PageExtraction:
+def extract_page(llm: LLM, *, brand: str, url: str, text: str, links: list[dict], context: dict, observed: date, serp: str | None = None) -> PageExtraction:
     link_lines = "\n".join(f"- {l['text'][:80]} -> {l['href']}" for l in links[:80])
     user = (
         f"Brand: {brand}\nPage URL: {url}\nObserved on: {observed.isoformat()} (Australia)\n"
@@ -43,7 +54,8 @@ def extract_page(llm: LLM, *, brand: str, url: str, text: str, links: list[dict]
         f"LINKS found on the page:\n{link_lines or '(none)'}\n\n{wrap_document(text, url)}\n\n"
         "Extract every distinct current promotion on this page."
     )
-    return llm.structured(system=SYSTEM, user=user, schema=PageExtraction, tool_name="submit_offers", max_tokens=16000)
+    system = SYSTEM + (SERP_NOTE.format(query=serp) if serp else "")
+    return llm.structured(system=system, user=user, schema=PageExtraction, tool_name="submit_offers", max_tokens=16000)
 
 
 def enrich_from_terms(llm: LLM, *, brand: str, offer_title: str, offer_summary: str, terms_url: str, terms_text: str, observed: date) -> TermsEnrichment:

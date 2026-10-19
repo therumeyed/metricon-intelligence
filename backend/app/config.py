@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     dataforseo_daily_usd_limit: float = 2.0
     dataforseo_monthly_usd_limit: float = 40.0
     dataforseo_max_requests_per_job: int = 40
+    dataforseo_est_cost_per_serp: float = 0.002  # list price for one Live SERP (10 results); an ESTIMATE - reported cost is stored separately
+    serp_max_requests_per_job: int = 150
     dataforseo_est_cost_per_explore: float = 0.011  # DataForSEO list price for one Live Explore task (public pricing page); an ESTIMATE - reported cost is stored separately
     anthropic_max_calls_per_job: int = 60
     anthropic_daily_call_limit: int = 300

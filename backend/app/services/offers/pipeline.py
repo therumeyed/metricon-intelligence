@@ -40,6 +40,7 @@ from ...timeutil import default_tz_for_state, is_expired, now_utc, today_local
 from .. import content as content_mod
 from .. import fetcher
 from ..llm import LLM, LLMError
+from ..serp import SERP_KINDS
 from ..spend import BudgetExceeded
 from . import llm_extract, rules_extract
 from .schema import ExtractedOffer, PageExtraction
@@ -226,6 +227,7 @@ def rebuild_derived(db: Session, offer: Offer, now: datetime | None = None) -> N
     for g in eff["geography"]:
         offer.applicability.append(OfferApplicability(scope_level=g.get("level") or "state", state=g.get("state"), name=g.get("name"),
                                                       as_stated=f"{g.get('as_stated') or g.get('name') or ''} [{g.get('basis', 'stated')}]"))
+    offer.evidence_level = "page" if any(x.role in ("listing", "detail") for x in offer.sources) else "search_snippet"
     refresh_status(db, offer, now)
     refresh_flags(db, offer)
 
@@ -264,7 +266,7 @@ def refresh_status(db: Session, offer: Offer, now: datetime | None = None) -> No
     if offer.status_set_by_human:
         return
     eff = offer.effective or {}
-    page_sources = [s for s in offer.sources if s.role in ("listing", "detail")]
+    page_sources = [s for s in offer.sources if s.role in ("listing", "detail", "serp")]
     if eff.get("withdrawn_explicit"):
         offer.status, offer.status_reason = "withdrawn", f"Source states the offer is withdrawn: \"{(eff.get('withdrawn_evidence') or '')[:200]}\""
         return
@@ -286,10 +288,12 @@ def refresh_status(db: Session, offer: Offer, now: datetime | None = None) -> No
         else:
             unknown += 1
     if seen_now:
-        offer.status, offer.status_reason = "advertised", "Shown on a current official page at last successful check"
+        offer.status = "advertised"
+        offer.status_reason = ("Appeared in Google results for the brand's own site at last check (read from the result snippet, not the page)"
+                               if all(s.role == "serp" for s in page_sources) else "Shown on a current official page at last successful check")
     elif absent_after_crawl and not unknown and absent_after_crawl == len(page_sources):
         offer.status = "no_longer_observed"
-        offer.status_reason = ("Replaced by a fuller AI re-read of the same page; the earlier rules-based entry was approximate" if superseded_by_ai(db, offer)
+        offer.status_reason = ("No longer appearing in the search results that showed it (not confirmed withdrawn)" if all(s.role == "serp" for s in page_sources) else"Replaced by a fuller AI re-read of the same page; the earlier rules-based entry was approximate" if superseded_by_ai(db, offer)
                                else "Last successful crawl of every page that listed it no longer shows it (not confirmed withdrawn)")
     # otherwise: leave the previous status untouched (e.g. fetch failures)
 
@@ -299,7 +303,7 @@ def superseded_by_ai(db: Session, offer: Offer) -> bool:
     if not offer.versions or offer.versions[-1].extraction_method != "rules":
         return False
     for os_ in offer.sources:
-        if os_.role not in ("listing", "detail"):
+        if os_.role not in ("listing", "detail"):  # search-result sources are never "re-read": there is no page to read
             continue
         snap = db.scalar(select(SourceSnapshot).where(SourceSnapshot.source_id == os_.source_id, SourceSnapshot.outcome == "ok",
                                                       SourceSnapshot.extraction_notes.is_not(None)).order_by(SourceSnapshot.id.desc()).limit(1))
@@ -506,12 +510,18 @@ def process_source(db: Session, source: Source, snap: SourceSnapshot, llm: LLM |
         result.update(extracted=True, skipped_unchanged=True, offers=len(seen_ids))
         return result
 
-    text = _page_text(blocks, source.kind)
+    is_serp = source.kind in SERP_KINDS
+    text = "\n".join(blocks)[:30000] if is_serp else _page_text(blocks, source.kind)
     method, model, page, notes = "rules", None, None, []
+    if is_serp and llm is None:  # snippets are too thin and too unstructured for the rules reader: keep the evidence, read it once the model is connected
+        snap.extraction_notes = {"extracted": False, "error": "AI model not connected: search results stored but not yet read"}
+        result["error"] = snap.extraction_notes["error"]
+        return result
     if llm is not None:
         try:
             if text.strip():
-                page = llm_extract.extract_page(llm, brand=brand.name, url=source.url, text=text, links=links, context=source.context or {}, observed=today_local(now))
+                page = llm_extract.extract_page(llm, brand=brand.name, url=source.url, text=text, links=links, context=source.context or {}, observed=today_local(now),
+                                                serp=(source.context or {}).get("search", {}).get("query") if is_serp else None)
             else:
                 page = PageExtraction(offers=[], page_has_offers=False)
             method, model = "llm", llm.model
@@ -526,17 +536,21 @@ def process_source(db: Session, source: Source, snap: SourceSnapshot, llm: LLM |
     notes += vnotes
     snap.extraction_notes = {"extracted": True, "material_hash": mat_hash}  # read successfully: status checks below must see this snapshot as the latest read
     db.flush()
-    role = "detail" if source.kind == "offer_detail" else "listing"
+    role = "serp" if is_serp else "detail" if source.kind == "offer_detail" else "listing"
     seen: list[Offer] = []
     seen_keys: set[int] = set()
-    multi = len(page.offers) > 1
+    multi = len(page.offers) > 1 or is_serp  # search results carry several campaigns: identity comes from the title, never from "the only offer on this page"
+    result_urls = {l["href"] for l in links}
     for ex in page.offers:
         o = upsert_offer(db, brand=brand, source=source, snap=snap, ex=ex, method=method, model=model, is_baseline=is_baseline, role=role,
                          prior_here=prior_offers, multi=multi, now=now, evidence_notes=[n for n in notes if ex.title[:40] in n])
+        if is_serp:  # point readers at the official result the offer came from, not at the Google search
+            o.source_url = ex.detail_url if ex.detail_url in result_urls else (o.source_url if o.source_url and "google." not in o.source_url else None)
         if o.id not in seen_keys:
             seen.append(o)
             seen_keys.add(o.id)
-    register_linked_sources(db, source, brand, page.offers, links)
+    if not is_serp:
+        register_linked_sources(db, source, brand, page.offers, links)
     snap.extraction_notes = {"extracted": True, "material_hash": mat_hash, "seen_offer_ids": sorted(seen_keys), "method": method,
                              "notes": notes[:40], "page_has_offers": page.page_has_offers}
     # offers previously on this page but not in this extraction: re-evaluate (crawl was successful)

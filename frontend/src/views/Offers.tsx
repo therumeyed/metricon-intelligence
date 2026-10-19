@@ -28,6 +28,12 @@ function valueCell(o: any) {
     </div>))}</div>;
 }
 
+function SearchNote({ s, metricon, blocked }: { s: any; metricon: number; blocked: boolean }) {
+  if (!s.connected) return <Banner><strong>Search-based offers are switched off.</strong> Offers are read from each brand’s Google results (for example “Metricon offers”) because the builders’ sites cannot be crawled reliably. Add the DataForSEO credentials as environment variables on both services to start collecting.</Banner>;
+  if (s.collected === 0) return <Banner><strong>Google results haven’t been collected yet.</strong> The daily run does it automatically; an administrator can start “Collect search results” under Admin → Jobs.</Banner>;
+  return <Banner tone="info"><strong>Where this comes from.</strong> Where a builder’s site blocks automated access, offers are read from the title and snippet of its own-site Google results (last collected {fmtDate(s.last_collected_at)}, {s.collected} of {s.searches} searches{s.failing ? `, ${s.failing} failing` : ""}). Those rows are tagged “From Google result”.{!s.ai_connected && " The AI model isn’t connected, so results are stored but not read yet."}{metricon === 0 && s.ai_connected && blocked && " No Metricon offer has appeared in its Google results yet."}</Banner>;
+}
+
 export default function Offers() {
   const { geo, meta, user } = useApp();
   const [tab, setTab] = useState<"table" | "patterns">("table");
@@ -77,7 +83,7 @@ export default function Offers() {
 
         {hist ? <Banner tone="info"><strong>Historical view – offers as they stood on {fmtDate(asOf)}.</strong> Includes offers first observed by then and not past their published expiry. Dates are when we first saw an offer, so earlier campaigns may be missing. This is not the current picture.</Banner>
           : <Banner tone="info"><strong>Current view</strong> – {geo === "AU" ? "all monitored states" : `offers listed for ${geo}`}. Geography is shown exactly as stated; an offer without a stated region is flagged, never assumed national.</Banner>}
-        {data.data?.own_blocked?.length > 0 && <Banner><strong>Metricon’s own offers aren’t being collected automatically yet.</strong> Its website blocks automated access. Metricon rows will appear once the site allows this tool through, or an administrator adds the page content (Admin → Sources).</Banner>}
+        {data.data?.search && <SearchNote s={data.data.search} metricon={data.data.metricon_count} blocked={data.data.own_blocked?.length > 0} />}
         {data.loading && !data.data && <Loading />}
         {data.error && <ErrorBox message={data.error} />}
         {data.data && sorted.length === 0 && <Empty>No offers match these filters.</Empty>}
@@ -87,7 +93,7 @@ export default function Offers() {
             <tr key={o.campaign_id} className={`click ${o.is_own ? "own" : ""}`} onClick={() => setOpen(o.campaign_id)}>
               <td><b>{o.brand}</b></td>
               <td className="small" style={{ maxWidth: 170 }}>{o.geography_unknown ? <span className="faint">Geography not stated</span> : o.geography.map((g: any) => <div key={g.name + g.state}>{g.name ?? g.state}{g.basis === "page_context" && <span className="tiny faint"> (page)</span>}</div>)}</td>
-              <td style={{ maxWidth: 260 }}><b>{o.title}</b>{o.needs_review && <div><Chip tone="warn">Needs review</Chip></div>}{o.conflicts.length > 0 && <div><Chip tone="bad">Sources conflict</Chip></div>}</td>
+              <td style={{ maxWidth: 260 }}><b>{o.title}</b>{o.evidence_level === "search_snippet" && <div><Chip tone="info">From Google result</Chip></div>}{o.needs_review && <div><Chip tone="warn">Needs review</Chip></div>}{o.conflicts.length > 0 && <div><Chip tone="bad">Sources conflict</Chip></div>}</td>
               <td>{[...new Set(o.mechanisms.map((m: any) => m.type_label))].map((t: any) => <div key={t}>{t}</div>)}</td>
               <td>{valueCell(o)}</td>
               <td className="small">{o.ranges.length ? o.ranges.join(", ") : <span className="faint">Not stated</span>}</td>
@@ -95,7 +101,7 @@ export default function Offers() {
               <td className="num small">{o.published_expiry ? <>{fmtDate(o.published_expiry)}{o.expiry_timezone_assumed && <div className="tiny faint">tz assumed</div>}</> : <span className="faint">Expiry not published</span>}</td>
               <td>{statusChip(o)}<div style={{ marginTop: 3 }}>{fresh(o)}</div></td>
               <td className="small num">{fmtDate(o.last_success_check_at)}</td>
-              <td onClick={(e) => e.stopPropagation()} className="small"><a href={o.source_url} target="_blank" rel="noreferrer noopener">Page</a>{o.terms_url && <> · <a href={o.terms_url} target="_blank" rel="noreferrer noopener">Terms</a></>}</td>
+              <td onClick={(e) => e.stopPropagation()} className="small">{o.source_url ? <a href={o.source_url} target="_blank" rel="noreferrer noopener">{o.evidence_level === "search_snippet" ? "Result" : "Page"}</a> : <span className="faint">–</span>}{o.terms_url && <> · <a href={o.terms_url} target="_blank" rel="noreferrer noopener">Terms</a></>}</td>
             </tr>))}</tbody></table></div>}
         <p className="tiny faint">Retrieved {fmtDateTime(data.data?.retrieved)}. {data.data?.roster_note}</p>
       </>}
@@ -123,6 +129,7 @@ function OfferPanel({ id, admin, onClose }: { id: string; admin: boolean; onClos
       {o && <div className="stack">
         {o.review_reasons.length > 0 && <Banner>{o.review_reasons.map((r: string) => <div key={r}>• {r}</div>)}</Banner>}
         {o.conflicts.length > 0 && <Banner tone="bad"><strong>Landing page and terms disagree.</strong> Both are retained; a definitive comparison needs review.{o.conflicts.map((c: string) => <div key={c}>• {c}</div>)}</Banner>}
+        {o.evidence_level === "search_snippet" && <Banner tone="info"><strong>Read from a Google search result, not the page itself.</strong> Snippets are short and can be out of date, so conditions, regions and expiry are often missing – check the official page before relying on the detail.{o.found_via?.length > 0 && <> Found by searching: {o.found_via.map((q: string) => `“${q}”`).join(", ")}.</>}</Banner>}
         {o.status_reason && <p className="small muted" style={{ margin: 0 }}>{o.status_reason}</p>}
         <section className="card"><h4>Benefits</h4><div className="tablewrap" style={{ marginTop: 8 }}><table><thead><tr><th>Type</th><th>What</th><th className="r">Advertised amount</th><th>Nature</th><th className="r">Customer pays</th></tr></thead><tbody>
           {o.mechanisms.map((m: any, i: number) => <tr key={i}><td>{m.type_label}</td><td>{m.label}{m.government_component && <div><Chip tone="info">Government component</Chip></div>}</td>

@@ -160,12 +160,14 @@ class Schedule:
     weekday: int | None = None  # 0=Monday for weekly
 
 
-DAILY_PIPELINE = ["collect_sources", "extract_offers", "detect_events", "collect_news", "check_macro"]
+DAILY_PIPELINE = ["collect_sources", "collect_search", "extract_offers", "detect_events", "analyse_activity", "collect_news", "check_macro"]
 WEEKLY_PIPELINE = ["refresh_trends", "discover_related", "generate_briefs"]
 SCHEDULES = [
     Schedule("collect_sources", "daily", 5),
+    Schedule("collect_search", "daily", 5),
     Schedule("extract_offers", "daily", 5),
     Schedule("detect_events", "daily", 5),
+    Schedule("analyse_activity", "daily", 5),
     Schedule("collect_news", "daily", 6),
     Schedule("check_macro", "daily", 6),
     Schedule("refresh_trends", "weekly", 4, 0),

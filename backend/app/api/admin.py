@@ -1,6 +1,8 @@
 """Administrator API: roster, sources, taxonomy, GSC imports, corrections, jobs and limits. All routes require role=admin + CSRF header."""
 from __future__ import annotations
 
+import re
+
 import gzip
 import os
 import tempfile
@@ -277,10 +279,51 @@ def manual_snapshot(sid: int, body: ManualSnapshotIn, db: Session = Depends(get_
     return {"snapshot_id": snap.id, "extract_job_id": run_id}
 
 
+class SearchIn(BaseModel):
+    brand_slug: str
+    query: str
+    kind: str = "offers"  # offers | news
+
+
+@router.post("/searches")
+def search_create(body: SearchIn, db: Session = Depends(get_db), me: AppUser = Depends(auth.current_user)):
+    """Add a standing Google search for a brand. 'offers' reads the brand's own-site results for offers; 'news' reads Google News for activity."""
+    from ..services.serp.collect import google_url
+
+    brand = db.scalar(select(Brand).where(Brand.slug == body.brand_slug))
+    if not brand:
+        raise HTTPException(400, "unknown brand")
+    q = " ".join(body.query.split())
+    if not q or len(q) > 120:
+        raise HTTPException(400, "query must be 1-120 characters")
+    if re.search(r"\b(site|intitle|inurl|allintitle|allinurl):", q, re.I):
+        raise HTTPException(400, "search operators are billed at a multiple of the normal price and are not supported")
+    if body.kind not in ("offers", "news"):
+        raise HTTPException(400, "kind must be offers or news")
+    kind = "serp_offers" if body.kind == "offers" else "serp_news"
+    url = google_url(q, news=body.kind == "news")
+    if db.scalar(select(Source.id).where(Source.url == url, Source.context_key == "")):
+        raise HTTPException(400, "this search already exists")
+    src = Source(brand_id=brand.id, kind=kind, url=url, fetch_mode="serp", notes="Added by an administrator",
+                 context={"search": {"query": q, "engine": "google", "result_kind": "news" if kind == "serp_news" else "organic", "location": "Australia", "language_code": "en", "state_in_query": None}})
+    db.add(src)
+    db.flush()
+    audit(db, me, "search.create", "source", src.id, after=body.model_dump())
+    db.commit()
+    return {"id": src.id}
+
+
 @router.post("/sources/{sid}/fetch")
 def source_fetch(sid: int, db: Session = Depends(get_db), me: AppUser = Depends(auth.current_user)):
-    if not db.get(Source, sid):
+    src = db.get(Source, sid)
+    if not src:
         raise HTTPException(404)
+    from ..services.serp import SERP_KINDS
+
+    if src.kind in SERP_KINDS:
+        run_id = jobs.enqueue("collect_search", {"source_ids": [sid]}, trigger="manual", user_id=me.id)
+        jobs.execute_in_thread(run_id)
+        return {"job_id": run_id}
     run_id = jobs.enqueue("collect_sources", {"source_ids": [sid]}, trigger="manual", user_id=me.id)
     jobs.execute_in_thread(run_id)
     return {"job_id": run_id}

@@ -119,7 +119,7 @@ def extract_offers(ctx: JobContext) -> dict:
         llm = llm_mod.LLM(db, ctx.run_id) if llm_mod.available() else None
         out["method"] = "llm" if llm else "rules"
         for round_no in range(3):  # round 1 listings, rounds 2-3 pick up detail pages / terms they link to
-            ids = [r[0] for r in db.execute(select(Source.id).where(Source.active.is_(True), Source.kind.in_(["discovery_seed", "offer_listing", "offer_detail"])).order_by(Source.id))]
+            ids = [r[0] for r in db.execute(select(Source.id).where(Source.active.is_(True), Source.kind.in_(["discovery_seed", "offer_listing", "offer_detail", "serp_offers"])).order_by(Source.id))]
             newly_fetched = 0
             for sid in ids:
                 src = db.get(Source, sid)
@@ -213,6 +213,53 @@ def detect_events(ctx: JobContext) -> dict:
                 out["errors"].append({"source": src.url, "error": f"{type(e).__name__}: {e}"})
         since = now_utc() - timedelta(days=int(ctx.params.get("lookback_days", 2)))
         out["offer_events"] = events_mod.events_from_offers(db, since)
+    return out
+
+
+@job("collect_search")
+def collect_search(ctx: JobContext) -> dict:
+    """Daily Google results (organic for offers, News for activity) per brand via DataForSEO. Stored as snapshots; reading them is a separate step."""
+    from .services.serp import collect as C
+    from .services.serp.provider import DataForSEOSerp
+    from .services.trends.provider import ProviderError
+
+    try:
+        client = DataForSEOSerp()
+    except ProviderError as e:
+        return {"_status": "skipped", "not_connected": str(e)}
+    with session_scope() as db:
+        out = C.collect(db, client, ctx.run_id, kinds=tuple(ctx.params.get("kinds") or C.SERP_KINDS), limit=ctx.params.get("limit"), brand_slug=ctx.params.get("brand"), source_ids=ctx.params.get("source_ids"))
+    if out["errors"]:
+        out["errors"] = out["errors"][:20]
+    return out
+
+
+@job("analyse_activity")
+def analyse_activity(ctx: JobContext) -> dict:
+    """Turn new Google News results into competitor events (AI-judged when connected, plain headlines otherwise)."""
+    from .services.serp.activity import process_news_source
+
+    out = {"sources": 0, "new_events": 0, "judged": 0, "errors": []}
+    with session_scope() as db:
+        llm = llm_mod.LLM(db, ctx.run_id) if llm_mod.available() else None
+        out["method"] = "ai" if llm else "headlines"
+        for sid in [r[0] for r in db.execute(select(Source.id).where(Source.active.is_(True), Source.kind == "serp_news").order_by(Source.id))]:
+            src = db.get(Source, sid)
+            snap = _latest_ok_snapshot(db, sid)
+            if snap is None or (snap.extraction_notes or {}).get("events_done"):
+                continue
+            try:
+                r = process_news_source(db, src, snap, llm)
+                snap.extraction_notes = {"events_done": True, **r}
+                out["sources"] += 1
+                out["new_events"] += r["new_events"]
+                out["judged"] += r["judged"]
+                if r.get("ai_error"):
+                    out["errors"].append({"source": src.url, "error": r["ai_error"]})
+                db.commit()
+            except Exception as e:  # noqa: BLE001
+                db.rollback()
+                out["errors"].append({"source": src.url, "error": f"{type(e).__name__}: {e}"[:200]})
     return out
 
 

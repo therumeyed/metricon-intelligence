@@ -150,7 +150,8 @@ def offers(state: str | None = None, brand: list[str] = Query(default=[]), benef
     own = [r for r in rows if r["is_own"]]
     return {"view": "historical" if as_of else "current", "as_of": as_of, "retrieved": now_utc(), "geography": flt["state"] or "AU", "count": len(rows), "offers": rows,
             "metricon_count": len(own), "roster_note": "Monitored roster only. Offer geography is shown as stated on the page; unknown geography is not assumed to be national.",
-            "own_blocked": [s for s in Q.source_health(db) if s["brand"] == "Metricon" and s["kind"] == "offer_listing" and s["last_outcome"] not in (None, "ok")][:8]}
+            "own_blocked": [s for s in Q.source_health(db) if s["brand"] == "Metricon" and s["kind"] == "offer_listing" and s["last_outcome"] not in (None, "ok")][:8],
+            "search": Q.search_status(db)}
 
 
 @router.get("/offers/patterns")

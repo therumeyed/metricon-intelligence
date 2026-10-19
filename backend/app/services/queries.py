@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..config import get_settings
@@ -70,6 +70,8 @@ def offer_dict(db: Session, o: Offer, detail: bool = False, now: datetime | None
         "finance_requirements": elig.get("finance_requirements") or [], "exclusions": elig.get("exclusions") or [],
         "conflicts": o.conflicts or [], "corrected_fields": eff.get("corrected_fields") or [],
     }
+    d["evidence_level"] = o.evidence_level
+    d["found_via"] = sorted({((x.source.context or {}).get("search") or {}).get("query") for x in o.sources if x.role == "serp"} - {None})
     d["value_summary"] = value_summary(d["mechanisms"])
     d["key_conditions"] = "; ".join(filter(None, [d["contract_condition"], *(d["finance_requirements"][:2]), d["land_status"], *(d["exclusions"][:1])])) or "Conditions not extracted"
     if detail:
@@ -78,7 +80,7 @@ def offer_dict(db: Session, o: Offer, detail: bool = False, now: datetime | None
         d["evidence"] = o.versions[-1].evidence if o.versions else []
         d["unresolved"] = o.versions[-1].unresolved if o.versions else []
         d["sources"] = [{"url": s.source.url, "role": s.role, "last_seen_at": s.last_seen_at, "last_outcome": s.source.last_outcome, "last_success_at": s.source.last_success_at,
-                         "snapshot_id": s.last_seen_snapshot_id} for s in o.sources]
+                         "snapshot_id": s.last_seen_snapshot_id, "search_query": ((s.source.context or {}).get("search") or {}).get("query")} for s in o.sources]
         d["machine_fields"] = o.versions[-1].fields if o.versions else None
     return d
 
@@ -194,8 +196,18 @@ def source_health(db: Session) -> list[dict]:
         out.append({"id": src.id, "brand": src.brand.name if src.brand else None, "kind": src.kind, "url": src.url, "state": src.state, "active": src.active,
                     "last_attempt_at": src.last_attempt_at, "last_success_at": src.last_success_at, "last_outcome": src.last_outcome, "last_error": src.last_error,
                     "consecutive_failures": src.consecutive_failures, "freshness": "never_collected" if age is None else ("stale" if age > s.stale_after_hours or src.last_outcome != "ok" else "fresh"),
-                    "notes": src.notes})
+                    "notes": src.notes, "query": ((src.context or {}).get("search") or {}).get("query")})
     return out
+
+
+def search_status(db: Session) -> dict:
+    """State of the Google-results route (offers + news): what is configured, whether it has run, and what can read it."""
+    from . import llm as llm_mod
+
+    srcs = list(db.scalars(select(Source).where(Source.kind.in_(["serp_offers", "serp_news"]), Source.active.is_(True))))
+    done = [s for s in srcs if s.last_success_at]
+    return {"connected": get_settings().dataforseo_ready, "ai_connected": llm_mod.available(), "searches": len(srcs), "collected": len(done),
+            "failing": sum(1 for s in srcs if s.last_outcome not in (None, "ok")), "last_collected_at": max((s.last_success_at for s in done), default=None)}
 
 
 # --------------------------------------------------------------------------- trends
@@ -314,7 +326,10 @@ def gsc_overview(db: Session) -> dict:
 
 def events_list(db: Session, *, state: str | None = None, brands: list[str] | None = None, event_type: str | None = None, days: int = 60, include_baseline: bool = False) -> list[dict]:
     since = now_utc() - timedelta(days=days)
-    q = select(CompetitorEvent).where(CompetitorEvent.observed_at >= since).order_by(CompetitorEvent.observed_at.desc())
+    when = func.coalesce(CompetitorEvent.published_at, CompetitorEvent.observed_at)  # news is dated by its publisher; crawl events by when we first saw them
+    q = select(CompetitorEvent).where(when >= since).order_by(when.desc())
+    if not include_baseline:
+        q = q.where(CompetitorEvent.is_baseline.is_(False))
     if state:
         q = q.where(or_(CompetitorEvent.state == state, CompetitorEvent.state.is_(None)))
     if event_type:
@@ -326,5 +341,8 @@ def events_list(db: Session, *, state: str | None = None, brands: list[str] | No
         out.append({"id": e.id, "event_key": e.event_key, "brand": e.brand.name, "brand_slug": e.brand.slug, "event_type": e.event_type, "state": e.state, "title": e.title, "summary": e.summary,
                     "theme": e.theme_slug, "observed_at": e.observed_at, "effective_date": e.effective_date, "source_url": e.source_url, "before": e.before, "after": e.after,
                     "evidence": e.evidence, "offer_campaign_id": e.offer.campaign_id if e.offer_id and e.offer else None,
-                    "date_note": "First observed by our crawler - not a confirmed launch date." if not e.effective_date else "Effective date stated by the source."})
+                    "origin": e.origin, "published_at": e.published_at, "publisher": (e.after or {}).get("publisher") if e.origin.startswith("search") else None,
+                    "note": (e.after or {}).get("note") if e.origin.startswith("search") else None,
+                    "date_note": ("Published " + e.published_at.date().isoformat() + " according to Google News." if e.published_at else "Google News gave no publication date; shown by when we first saw it.") if e.origin == "search_news"
+                    else ("First observed by our crawler - not a confirmed launch date." if not e.effective_date else "Effective date stated by the source.")})
     return out

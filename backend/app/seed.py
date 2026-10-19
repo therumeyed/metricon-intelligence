@@ -141,6 +141,9 @@ def seed_all(db: Session) -> dict:
     out.update(seed_themes(db))
     out.update(seed_sources(db))
     out.update(seed_news_queries(db))
+    from .services.serp.collect import seed_search_sources
+
+    out.update(seed_search_sources(db))
     return out
 
 
