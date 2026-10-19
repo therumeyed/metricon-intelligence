@@ -318,9 +318,11 @@ def refresh_trends(ctx: JobContext) -> dict:
         if not T.resolve_location(db, "AU"):
             T.sync_locations(db, client)
         created = T.build_default_plans(db)
+        out_reselected = T.reselect_theme_plans(db)
         db.commit()
         out = T.refresh_plans(db, client, ctx.run_id, only_pilot=bool(ctx.params.get("pilot_only")), limit=ctx.params.get("limit"))
-        out["plans_created"] = created
+        out["plans_created"], out["plans_rekeyed"] = created, out_reselected
+        out["keywords_retired"] = T.mark_unusable_keywords(db)  # picked up by the next weekly run
         if out["failed"]:
             out["errors"] = out["failed"]
         return out

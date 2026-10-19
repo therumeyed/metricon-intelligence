@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from ...config import get_settings
 from ...models import (
+    AppSetting,
     Brand,
     BrandAlias,
     BrandRegion,
@@ -299,6 +300,84 @@ def discovery_seeds(db: Session) -> list[str]:
     return seeds
 
 
+UNUSABLE_KEY = "trend_unusable_keywords"
+
+
+def _compact(k: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", k.lower())
+
+
+def unusable_keywords(db: Session) -> dict:
+    row = db.get(AppSetting, UNUSABLE_KEY)
+    return dict(row.value) if row is not None else {}
+
+
+def theme_candidates(db: Session, theme: Theme) -> list[str]:
+    """Broad hand-picked seed terms first (they have enough volume to chart), then Metricon's own Search Console head terms.
+    Keywords already found too sparse nationally are skipped; near-duplicates ('knockdown' / 'knock down') are collapsed."""
+    bad = {_compact(k) for k in unusable_keywords(db)}
+    seeds = [k.keyword for k in sorted((k for k in theme.keywords if k.source == "seed"), key=lambda k: k.id)]
+    chosen = [k.keyword for k in sorted((k for k in theme.keywords if k.source in ("admin", "discovery") and k.tracked), key=lambda k: k.id)]
+    gscs = [k.keyword for k in sorted((k for k in theme.keywords if k.source == "gsc"), key=lambda k: -(k.gsc_impressions or 0))]
+    out, seen = [], set()
+    for kw in chosen + seeds + gscs:
+        c = _compact(kw)
+        if c in seen or c in bad:
+            continue
+        seen.add(c)
+        out.append(kw)
+    return out
+
+
+def theme_keywords(db: Session, theme: Theme) -> list[str]:
+    return theme_candidates(db, theme)[:5]
+
+
+def reselect_theme_plans(db: Session) -> int:
+    """Keep auto-managed theme plans on the best currently-known keywords. Plans an administrator edited are left alone."""
+    changed = 0
+    themes = {t.slug: t for t in db.scalars(select(Theme))}
+    for plan in db.scalars(select(TrendPlan).where(TrendPlan.purpose == "theme", TrendPlan.auto_managed.is_(True))):
+        t = themes.get(plan.theme_slug)
+        if t is None:
+            continue
+        kws = theme_keywords(db, t)
+        if len(kws) >= 2 and kws != list(plan.keywords):
+            plan.keywords = kws
+            changed += 1
+    db.flush()
+    return changed
+
+
+def mark_unusable_keywords(db: Session) -> list[str]:
+    """After a national theme refresh: keywords whose series is mostly 'insufficient data' are retired from auto-selection (recorded with the date)."""
+    cur = unusable_keywords(db)
+    retired = []
+    for plan in db.scalars(select(TrendPlan).where(TrendPlan.purpose == "theme", TrendPlan.geo_key == "AU", TrendPlan.auto_managed.is_(True))):
+        req = pipeline_request(db, plan)
+        if req is None:
+            continue
+        for kw in req.keywords:
+            obs = db.scalars(select(TrendObservation).where(TrendObservation.request_id == req.id, TrendObservation.keyword == clean_keyword(kw))).all()
+            q = M.series_quality([M.Point(o.period_start, o.period_end, o.value, o.is_partial) for o in obs], today_local())
+            if q["observed_weeks"] >= M.MIN_USABLE_POINTS and not q["usable"] and kw not in cur:
+                cur[kw] = today_local().isoformat()
+                retired.append(kw)
+    if retired:
+        row = db.get(AppSetting, UNUSABLE_KEY)
+        if row is None:
+            db.add(AppSetting(key=UNUSABLE_KEY, value=cur))
+        else:
+            row.value = cur
+        db.flush()
+    return retired
+
+
+def pipeline_request(db: Session, plan: TrendPlan) -> TrendRequest | None:
+    return db.scalar(select(TrendRequest).where(TrendRequest.kind == "compare", TrendRequest.geo_key == plan.geo_key, TrendRequest.status == "ok",
+                                                TrendRequest.keywords == plan.keywords).order_by(TrendRequest.id.desc()).limit(1))
+
+
 def build_default_plans(db: Session) -> int:
     """Create (never overwrite) refresh plans. Pilot plans are active; the rest are created inactive until an admin enables them."""
     created = 0
@@ -324,7 +403,7 @@ def build_default_plans(db: Session) -> int:
     add("brands:AU:1", "brands", "AU", [own_term] + [brand_term(db, b) for b in spread], brand_ids=[metricon.id] + [b.id for b in spread], pilot=True)
     themes = list(db.scalars(select(Theme).where(Theme.active.is_(True)).order_by(Theme.sort_order)))
     for n, t in enumerate(themes):
-        kws = [k.keyword for k in sorted((k for k in t.keywords if k.tracked), key=lambda k: -(k.gsc_impressions or 0))][:5]
+        kws = theme_keywords(db, t)
         if len(kws) < 2:
             continue
         for geo in GEO_KEYS:

@@ -123,3 +123,35 @@ def normalise_for_sparkline(points: list[Point]) -> list[dict]:
         else:
             out.append({"date": p.start.isoformat(), "v": round(p.value / mx * 100, 1) if mx else None})
     return out
+
+
+# --------------------------------------------------------------------------- series quality
+MIN_USABLE_SHARE = 0.6  # share of observed weeks that must be above zero for a keyword to be worth charting
+MIN_USABLE_POINTS = 26
+
+
+def series_quality(points: list[Point], today: date) -> dict:
+    """Is this keyword's series worth drawing? A provider 0 means 'insufficient data', so a series that is mostly 0 is sparse, not 'low demand'."""
+    pts = complete_points(points, today)
+    recent = pts[-52:]
+    n = len(recent)
+    nonzero = sum(1 for p in recent if (p.value or 0) > 0)
+    share = nonzero / n if n else 0.0
+    avg = (sum(p.value or 0 for p in recent) / n) if n else 0.0
+    usable = n >= MIN_USABLE_POINTS and share >= MIN_USABLE_SHARE
+    reason = None if usable else ("too few weekly observations" if n < MIN_USABLE_POINTS else "searched too rarely for Google Trends to report most weeks")
+    return {"usable": usable, "observed_weeks": n, "nonzero_share": round(share, 2), "avg_index": round(avg, 1), "reason": reason}
+
+
+def direction(mom4: dict, yoy4: dict) -> str:
+    """rising | falling | steady | no_data, from the 4-week and year-on-year changes (only 'ok' metrics count)."""
+    m = mom4.get("value_pct") if mom4.get("status") == "ok" else None
+    y = yoy4.get("value_pct") if yoy4.get("status") == "ok" else None
+    if m is None and y is None:
+        return "no_data"
+    ref = m if m is not None else y
+    if ref >= 10 and (y is None or y > -10):
+        return "rising"
+    if ref <= -10 and (y is None or y < 10):
+        return "falling"
+    return "steady"

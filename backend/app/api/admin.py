@@ -630,7 +630,7 @@ def limits_put(body: LimitsIn, db: Session = Depends(get_db), me: AppUser = Depe
 
 @router.get("/trend-plans")
 def plans(db: Session = Depends(get_db)):
-    return [{"id": p.id, "key": p.plan_key, "purpose": p.purpose, "geo": p.geo_key, "keywords": p.keywords, "theme": p.theme_slug, "active": p.active, "pilot": p.pilot}
+    return [{"id": p.id, "key": p.plan_key, "purpose": p.purpose, "geo": p.geo_key, "keywords": p.keywords, "theme": p.theme_slug, "active": p.active, "pilot": p.pilot, "auto_managed": p.auto_managed}
             for p in db.scalars(select(TrendPlan).order_by(TrendPlan.pilot.desc(), TrendPlan.id))]
 
 
@@ -646,6 +646,7 @@ def plan_patch(pid: int, body: dict, db: Session = Depends(get_db), me: AppUser 
         if not 1 <= len(kws) <= 5:
             raise HTTPException(400, "a comparison needs 1-5 keywords")
         p.keywords = kws
+        p.auto_managed = False  # an administrator chose these: the weekly re-selection leaves them alone
     audit(db, me, "trend_plan.update", "trend_plan", pid, after=body)
     db.commit()
     return {"ok": True}

@@ -23,7 +23,7 @@ from ..models import (
     TrendPlan,
     TrendRequest,
 )
-from ..timeutil import now_utc
+from ..timeutil import now_utc, today_local
 from .offers import pipeline
 from .offers.schema import MECHANISM_LABELS
 from .trends import metrics as M
@@ -234,7 +234,7 @@ def _series_payload(db: Session, req: TrendRequest, kw: str) -> dict:
         return {"status": m.status, "value_pct": m.value, "current_avg": m.current_avg, "comparison_avg": m.comparison_avg, "reason": m.reason,
                 "label": M.READABLE_REASONS.get(m.reason or "", None) if m.status != "ok" else None, "windows": {"current": (m.details or {}).get("current_window"), "comparison": (m.details or {}).get("comparison_window")}}
     return {"keyword": kw, "points": [{"date": o.period_start.isoformat(), "end": o.period_end.isoformat() if o.period_end else None, "value": o.value, "partial": o.is_partial} for o in obs],
-            "sparkline_individually_normalised": M.normalise_for_sparkline(pts), "mom4": met("mom4"), "yoy4": met("yoy4")}
+            "sparkline_individually_normalised": M.normalise_for_sparkline(pts), "mom4": met("mom4"), "yoy4": met("yoy4"), "quality": M.series_quality(pts, today_local())}
 
 
 def _request_meta(req: TrendRequest) -> dict:
@@ -273,15 +273,32 @@ def pipeline_latest_request(db: Session, plan: TrendPlan) -> TrendRequest | None
 
 
 def theme_trends(db: Session, geo: str) -> list[dict]:
+    """One entry per theme. Keywords too sparse to chart are listed separately (never drawn as a flat line of zeros); the theme's headline
+    movement comes from its busiest usable keyword, and the direction label says which keyword it is based on."""
+    gsc = {}
+    imp = db.scalar(select(GscImport.id).order_by(GscImport.id.desc()).limit(1))
+    if imp:
+        from . import gsc as G
+
+        gsc = {t["theme"]: t for t in G.theme_summary(db, imp)}
     out = []
     for plan in db.scalars(select(TrendPlan).where(TrendPlan.geo_key == geo, TrendPlan.purpose == "theme").order_by(TrendPlan.id)):
         theme = db.scalar(select(Theme).where(Theme.slug == plan.theme_slug))
         req = pipeline_latest_request(db, plan)
-        entry = {"theme": plan.theme_slug, "theme_name": theme.name if theme else plan.theme_slug, "active": plan.active, "keywords": plan.keywords, "geo": geo, "geo_label": geo_view_label(geo)}
+        entry = {"theme": plan.theme_slug, "theme_name": theme.name if theme else plan.theme_slug, "active": plan.active, "keywords": plan.keywords, "geo": geo, "geo_label": geo_view_label(geo),
+                 "gsc": gsc.get(plan.theme_slug)}
         if req is None:
-            entry.update(status="no_data", series=[])
+            entry.update(status="no_data", series=[], sparse=[], headline=None)
         else:
-            entry.update(status="ok", meta=_request_meta(req), series=[_series_payload(db, req, kw) for kw in req.keywords],
+            series = [_series_payload(db, req, kw) for kw in req.keywords]
+            usable = sorted((s for s in series if s["quality"]["usable"]), key=lambda s: -s["quality"]["avg_index"])
+            top = usable[0]["quality"]["avg_index"] if usable else 0
+            for s in usable:
+                s["quality"]["relative_to_busiest_pct"] = round(100 * s["quality"]["avg_index"] / top) if top else None
+            head = usable[0] if usable else None
+            entry.update(status="ok" if usable else "sparse", meta=_request_meta(req), series=usable,
+                         sparse=[{"keyword": s["keyword"], "reason": s["quality"]["reason"], "nonzero_share": s["quality"]["nonzero_share"]} for s in series if not s["quality"]["usable"]],
+                         headline=({"keyword": head["keyword"], "mom4": head["mom4"], "yoy4": head["yoy4"], "direction": M.direction(head["mom4"], head["yoy4"]), "sparkline": head["sparkline_individually_normalised"]} if head else None),
                          note="Keyword series share one scale within this theme group. They are not averaged into a market-demand total.")
         out.append(entry)
     return out
