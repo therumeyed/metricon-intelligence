@@ -111,6 +111,8 @@ All state is in PostgreSQL (records, evidence, corrections, audit, job history);
 
 ## Access
 
+**Admin password (web service only):** set `ADMIN_PASSWORD` in Render -> metricon-intel (web) -> Environment and save. The dashboard stays open to read, but the Admin tab, every `/api/admin` call and the in-page admin buttons (write brief, write analysis) need the password; wrong guesses are rate-limited and a browser can re-lock with *Lock admin*. Without the variable Admin is open. Never put the password in the repository.
+
 **Login is off by default.** Anyone who can reach the URL sees everything and has full administrator rights: they can change the roster, correct offers, upload data and start jobs (including ones that spend DataForSEO and Anthropic credits). Only the spend limits in Admin → Limits cap that. Keep the URL private, or put the service behind something that restricts who can reach it.
 
 To bring sign-in back, set `REQUIRE_LOGIN=true` on the web service. That turns on admin-created accounts, bcrypt password hashes, signed session cookies and viewer / administrator roles, and the API, exports and admin routes then require a session. Set `SESSION_SECRET` (Render generates one) and create the first admin with `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` or `python -m app.cli create-user`. A CSRF header is required on every state-changing request in both modes. Actions taken in open mode are recorded in the audit log without a user name.

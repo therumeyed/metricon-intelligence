@@ -34,6 +34,30 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     return {"email": user.email, "name": user.name, "role": user.role}
 
 
+class UnlockIn(BaseModel):
+    password: str
+
+
+@router.post("/admin-unlock", dependencies=[Depends(auth.csrf_guard)])
+def admin_unlock(body: UnlockIn, request: Request):
+    if not auth.admin_unlock_enabled():
+        raise HTTPException(400, "No admin password is set on this service")
+    key = f"admin|{request.client.host if request.client else '?'}"
+    auth.throttle(key)
+    if not auth.check_admin_password(body.password):
+        auth.record_failure(key)
+        raise HTTPException(401, "Wrong password")
+    auth.clear_failures(key)
+    request.session["admin_unlocked"] = True
+    return {"role": "admin"}
+
+
+@router.post("/admin-lock", dependencies=[Depends(auth.csrf_guard)])
+def admin_lock(request: Request):
+    request.session.pop("admin_unlocked", None)
+    return {"role": "viewer"}
+
+
 @router.post("/logout", dependencies=[Depends(auth.csrf_guard)])
 def logout(request: Request):
     request.session.clear()
@@ -44,4 +68,4 @@ def logout(request: Request):
 def me(user: AppUser = Depends(auth.current_user)):
     from ..config import get_settings
 
-    return {"email": user.email, "name": user.name, "role": user.role, "login_required": get_settings().require_login}
+    return {"email": user.email, "name": user.name, "role": user.role, "login_required": get_settings().require_login, "admin_gate": auth.admin_unlock_enabled()}

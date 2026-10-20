@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     # Login is OFF by default: anyone who can reach the URL gets full (administrator) access. Set REQUIRE_LOGIN=true to bring the
     # sign-in page, accounts and roles back; nothing else changes.
     require_login: bool = False
+    admin_password: str = ""  # when set (and REQUIRE_LOGIN is off) the Admin area needs this password; everything else stays open
     session_secret: str = "dev-only-change-me"
     session_cookie_secure: bool = False
     session_max_age_hours: int = 12
@@ -60,7 +61,7 @@ class Settings(BaseSettings):
     seed_admin_email: str = ""
     seed_admin_password: str = ""
 
-    @field_validator("anthropic_api_key", "claude_model", "dataforseo_login", "dataforseo_password", "anthropic_base_url", "fetch_contact", mode="before")
+    @field_validator("admin_password", "anthropic_api_key", "claude_model", "dataforseo_login", "dataforseo_password", "anthropic_base_url", "fetch_contact", mode="before")
     @classmethod
     def _strip(cls, v):
         return v.strip() if isinstance(v, str) else v  # a pasted key often carries a trailing space or newline

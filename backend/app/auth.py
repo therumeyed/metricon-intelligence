@@ -58,9 +58,31 @@ def open_access_user() -> AppUser:
     return AppUser(id=None, email="open-access", name="Open access", role="admin", active=True, password_hash="")
 
 
+def viewer_open_user() -> AppUser:
+    return AppUser(id=None, email="open-access", name="Open access", role="viewer", active=True, password_hash="")
+
+
+def admin_unlock_enabled() -> bool:
+    from .config import get_settings
+
+    s = get_settings()
+    return bool(s.admin_password) and not s.require_login
+
+
+def check_admin_password(pw: str) -> bool:
+    import hmac
+
+    from .config import get_settings
+
+    expected = get_settings().admin_password
+    return bool(expected) and hmac.compare_digest(pw.encode(), expected.encode())
+
+
 def current_user(request: Request, db: Session = Depends(get_db)) -> AppUser:
     from .config import get_settings
 
+    if admin_unlock_enabled():  # everyone can read; only a browser that entered the admin password acts as administrator
+        return open_access_user() if request.session.get("admin_unlocked") is True else viewer_open_user()
     if not get_settings().require_login:
         return open_access_user()
     uid = request.session.get("uid")

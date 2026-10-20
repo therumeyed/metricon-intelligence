@@ -10,7 +10,7 @@ import Analysis from "./views/Analysis";
 import Admin from "./views/Admin";
 
 export type Geo = "AU" | "VIC" | "NSW" | "QLD" | "SA";
-export type User = { email: string; name?: string; role: "viewer" | "admin"; login_required?: boolean };
+export type User = { email: string; name?: string; role: "viewer" | "admin"; login_required?: boolean; admin_gate?: boolean };
 type Ctx = { geo: Geo; setGeo: (g: Geo) => void; meta: any; user: User; navigate: (p: string) => void };
 export const AppCtx = createContext<Ctx>(null as any);
 export const useApp = () => useContext(AppCtx);
@@ -58,6 +58,25 @@ function Login({ onDone }: { onDone: (u: User) => void }) {
   );
 }
 
+function AdminUnlock({ onDone }: { onDone: (u: User) => void }) {
+  const [password, setPassword] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault(); setBusy(true); setErr("");
+    try { await api.post("/api/auth/admin-unlock", { password }); onDone(await api.get<User>("/api/auth/me")); } catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="login"><form className="card stack" onSubmit={submit}>
+      <h2 style={{ margin: 0 }}>Admin</h2>
+      <p className="muted small" style={{ margin: 0 }}>Enter the admin password to manage sources, jobs, limits and settings. Everything else in the dashboard stays open.</p>
+      <label className="field">Password<input type="password" autoFocus autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
+      {err && <Banner tone="bad">{err}</Banner>}
+      <button className="btn primary" disabled={busy}>{busy ? "Checking…" : "Unlock admin"}</button>
+    </form></div>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const path = usePath();
@@ -78,7 +97,8 @@ export default function App() {
   const isAdmin = user.role === "admin";
   const onAdmin = path.startsWith("/admin");
   const logout = async () => { await api.post("/api/auth/logout"); setUser(null); };
-  const links = [...VIEWS, ...(isAdmin ? [{ path: "/admin", label: "Admin" }] : [])];
+  const links = [...VIEWS, ...(isAdmin || user.admin_gate ? [{ path: "/admin", label: "Admin" }] : [])];
+  const lock = async () => { await api.post("/api/auth/admin-lock"); setUser(await api.get<User>("/api/auth/me")); navigate("/"); };
   const active = links.find((v) => (v.path === "/" ? path === "/" : path.startsWith(v.path)))?.path ?? "/";
 
   return (
@@ -88,6 +108,7 @@ export default function App() {
         <nav className="nav" aria-label="Main">{links.map((v) => <a key={v.path} href={v.path + `?geo=${geo}`} className={active === v.path ? "on" : ""} onClick={(e) => { e.preventDefault(); navigate(v.path + `?geo=${geo}`); }}>{v.label}</a>)}</nav>
         <div className="spacer" />
         {!onAdmin && <div className="geo" role="group" aria-label="Geography">{GEOS.map((g) => <button key={g.code} title={g.title} className={geo === g.code ? "on" : ""} onClick={() => setGeo(g.code)}>{g.label}</button>)}</div>}
+        {user.admin_gate && isAdmin && <div className="userbox"><button className="btn sm" onClick={lock}>Lock admin</button></div>}
         {user.login_required && <div className="userbox"><span className="small muted">{user.email}</span><button className="btn sm" onClick={logout}>Sign out</button></div>}
       </div></header>
       <main className="page">
@@ -97,7 +118,7 @@ export default function App() {
         {path.startsWith("/activity") && <Activity />}
         {path.startsWith("/conditions") && <Conditions />}
         {path.startsWith("/analysis") && <Analysis />}
-        {path.startsWith("/admin") && (isAdmin ? <Admin /> : <Banner tone="bad">Administrator access required.</Banner>)}
+        {path.startsWith("/admin") && (isAdmin ? <Admin /> : user.admin_gate ? <AdminUnlock onDone={setUser} /> : <Banner tone="bad">Administrator access required.</Banner>)}
       </main>
     </AppCtx.Provider>
   );

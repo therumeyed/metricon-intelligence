@@ -48,6 +48,9 @@ def _clean(_schema):
     from app.services import fetcher
 
     fetcher._robots.clear()
+    from app.api import reader
+
+    reader._OPP_CACHE.clear()  # the opportunities view caches for two minutes
     yield
 
 
