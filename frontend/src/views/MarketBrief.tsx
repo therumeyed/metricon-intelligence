@@ -1,5 +1,6 @@
 import { useApp } from "../App";
-import { fmtDate, fmtDateTime, pct } from "../api";
+import { useState } from "react";
+import { api, fmtDate, fmtDateTime, pct } from "../api";
 import { Banner, Chip, Empty, ErrorBox, Loading, Tile, download, useFetch } from "../ui";
 
 const GEO_NAME: Record<string, string> = { AU: "Australia", VIC: "Victoria", NSW: "New South Wales", QLD: "Queensland", SA: "South Australia" };
@@ -12,6 +13,12 @@ export default function MarketBrief() {
   const news = useFetch(`/api/news?state=${geo}&limit=6`, [geo]);
   const b = brief.data?.brief;
   const ai = meta.modules.ai;
+  const [msg, setMsg] = useState("");
+  const writing = msg.startsWith("Writing");
+  const write = async () => {
+    try { await api.post("/api/admin/jobs/run", { name: "generate_briefs", params: { scope: geo } }); setMsg("Writing the brief – this takes a minute. Refreshing automatically…"); const t = setInterval(() => brief.reload(), 8000); setTimeout(() => { clearInterval(t); setMsg(""); }, 120000); }
+    catch (e) { setMsg((e as Error).message); }
+  };
 
   const tile = (indicator: string, g?: string) => macro.data?.series.find((s: any) => s.indicator === indicator && (g ? s.geography === g : true));
   const approvals = tile("house_approvals");
@@ -32,7 +39,8 @@ export default function MarketBrief() {
       {brief.loading && <Loading />}
       {brief.error && <ErrorBox message={brief.error} />}
 
-      {brief.data && !b && <Empty><strong>Brief unavailable</strong><div className="small">No brief has been generated for {GEO_NAME[geo]} yet.{brief.data.latest_attempt?.error ? ` Last attempt: ${brief.data.latest_attempt.error}` : ""}</div></Empty>}
+      {brief.data && !b && <Empty><strong>Brief unavailable</strong><div className="small">No brief has been generated for {GEO_NAME[geo]} yet.{brief.data.latest_attempt?.error ? ` Last attempt: ${brief.data.latest_attempt.error}` : ""}</div>
+        {ai.connected && user.role === "admin" && <div style={{ marginTop: 10 }}><button className="btn primary" disabled={writing} onClick={write}>{writing ? "Writing…" : "Write brief now"}</button> <span className="small muted">{msg}</span><div className="tiny faint" style={{ marginTop: 4 }}>Briefs also write themselves every Monday 8am Sydney. An error above is from an earlier attempt and clears once a new one succeeds.</div></div>}</Empty>}
 
       {b && (
         <div className="stack">

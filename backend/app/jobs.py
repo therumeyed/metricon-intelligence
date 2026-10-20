@@ -384,7 +384,7 @@ def generate_briefs(ctx: JobContext) -> dict:
         return {"_status": "skipped", "not_connected": llm_mod.status().get("reason"), "week_start": week.isoformat()}
     with session_scope() as db:
         llm = llm_mod.LLM(db, ctx.run_id)
-        for scope in B.SCOPES:
+        for scope in ([ctx.params["scope"]] if ctx.params.get("scope") in B.SCOPES else B.SCOPES):
             try:
                 b = B.generate_brief(db, scope, week, llm, ctx.run_id)
                 db.commit()
