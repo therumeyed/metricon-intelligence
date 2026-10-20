@@ -349,3 +349,22 @@ def test_offer_export_keeps_evidence_links_and_as_of(seeded, client, monkeypatch
     assert hist["view"] == "historical" and hist["count"] == 0  # a selected historical period is never mixed with current offers
     detail = client.get(f"/api/offers/{cur['offers'][0]['campaign_id']}").json()
     assert detail["versions"][0]["is_baseline"] and detail["evidence"] and detail["sources"][0]["url"].endswith("/offers/")
+
+
+def test_events_linked_to_an_offer_can_be_listed_and_feed_the_brief(seeded):
+    """Regression: CompetitorEvent had no `offer` relationship, so listing any offer-linked event raised AttributeError (Competitor activity and the brief both broke)."""
+    from app.models import Brand
+    from app.services import queries as Q
+    from app.services.offers.schema import PageExtraction
+    from tests.test_offers import MAIN, cycle, eo, src
+
+    s = src(seeded)
+    cycle(seeded, pytest.MonkeyPatch(), s, page(MAIN), FakeLLM(PageExtraction(offers=[eo()])))
+    o = seeded.scalar(select(Offer))
+    b = seeded.scalar(select(Brand).where(Brand.id == o.brand_id))
+    events.emit(seeded, key="t:offer-linked", brand=b, event_type="campaign_change", title="Offer changed", source=s, offer=o)
+    seeded.commit()
+    rows = Q.events_list(seeded, days=30)
+    assert rows and rows[0]["offer_campaign_id"] == o.campaign_id
+    facts = B.gather_facts(seeded, "AU", date(2026, 10, 19))
+    assert any(f["kind"] == "competitor_event" for f in facts["facts"])

@@ -317,6 +317,7 @@ class CompetitorEvent(Base):
     origin: Mapped[str] = mapped_column(String(16), default="crawl")  # crawl | search_news | search_web | rss
     published_at: Mapped[datetime | None] = mapped_column(TS)  # when the publisher dated the item (distinct from observed_at)
     brand: Mapped[Brand] = relationship()
+    offer: Mapped["Offer | None"] = relationship(foreign_keys=[offer_id])
 
 
 # --------------------------------------------------------------------------- themes + GSC
