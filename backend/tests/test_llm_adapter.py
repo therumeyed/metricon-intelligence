@@ -11,9 +11,18 @@ class StubMessages:
     def __init__(self, resp):
         self.resp, self.kwargs = resp, None
 
-    def parse(self, **kwargs):
+    def stream(self, **kwargs):
         self.kwargs = kwargs
-        return self.resp
+        resp = self.resp
+
+        class Ctx:
+            def __enter__(self):
+                return SimpleNamespace(get_final_message=lambda: resp)
+
+            def __exit__(self, *a):
+                return False
+
+        return Ctx()
 
 
 def make(resp, db):

@@ -14,9 +14,12 @@ export default function MarketBrief() {
   const b = brief.data?.brief;
   const ai = meta.modules.ai;
   const [msg, setMsg] = useState("");
-  const writing = msg.startsWith("Writing");
+  const attempt = brief.data?.latest_attempt;
+  const job = brief.data?.latest_job;
+  const running = attempt?.status === "running" || job?.status === "running" || job?.status === "queued";
+  const writing = msg.startsWith("Writing") || running;
   const write = async () => {
-    try { await api.post("/api/admin/jobs/run", { name: "generate_briefs", params: { scope: geo } }); setMsg("Writing the brief – this takes a minute. Refreshing automatically…"); const t = setInterval(() => brief.reload(), 8000); setTimeout(() => { clearInterval(t); setMsg(""); }, 120000); }
+    try { await api.post("/api/admin/jobs/run", { name: "generate_briefs", params: { scope: geo } }); setMsg("Writing the brief – this takes a few minutes. This page refreshes itself…"); const t = setInterval(() => brief.reload(), 8000); setTimeout(() => { clearInterval(t); setMsg(""); }, 600000); }
     catch (e) { setMsg((e as Error).message); }
   };
 
@@ -39,7 +42,9 @@ export default function MarketBrief() {
       {brief.loading && <Loading />}
       {brief.error && <ErrorBox message={brief.error} />}
 
-      {brief.data && !b && <Empty><strong>Brief unavailable</strong><div className="small">No brief has been generated for {GEO_NAME[geo]} yet.{brief.data.latest_attempt?.error ? ` Last attempt: ${brief.data.latest_attempt.error}` : ""}</div>
+      {brief.data && !b && <Empty><strong>Brief unavailable</strong><div className="small">No brief has been generated for {GEO_NAME[geo]} yet.{running ? " One is being written now – this page refreshes itself." : attempt?.error ? ` Last attempt (${fmtDateTime(attempt.generated_at)}): ${attempt.error}` : ""}</div>
+        {job && !running && job.status !== "succeeded" && <div className="small" style={{ marginTop: 6 }}>Last brief job ({fmtDateTime(job.finished_at ?? job.queued_at)}): <b>{job.status}</b>{job.result?.not_connected ? ` – Claude is not connected to this service (${job.result.not_connected})` : ""}{job.result?.errors?.length ? ` – ${job.result.errors.map((x: any) => x.error).join("; ")}` : ""}{job.error ? ` – ${job.error.split("\n")[0]}` : ""}</div>}
+        {user.role !== "admin" && ai.connected && <div className="small muted" style={{ marginTop: 8 }}>Unlock the Admin tab (top menu) to write a brief now.</div>}
         {ai.connected && user.role === "admin" && <div style={{ marginTop: 10 }}><button className="btn primary" disabled={writing} onClick={write}>{writing ? "Writing…" : "Write brief now"}</button> <span className="small muted">{msg}</span><div className="tiny faint" style={{ marginTop: 4 }}>Briefs also write themselves every Monday 8am Sydney. An error above is from an earlier attempt and clears once a new one succeeds.</div></div>}</Empty>}
 
       {b && (

@@ -214,12 +214,19 @@ def validate(db: Session, out: AnalysisOut, facts: dict) -> tuple[dict, list[dic
 
 # --------------------------------------------------------------------------- generation
 def generate(db: Session, scope: str, week: date, llm: LLM | None, job_run_id: int | None = None) -> InsightReport:
-    facts = build_facts(db, scope, week)
-    row = InsightReport(scope=scope, week_start=week, status="unavailable", prompt_version=PROMPT_VERSION, facts=_storable(facts), generated_at=now_utc())
+    row = InsightReport(scope=scope, week_start=week, status="running" if llm is not None else "unavailable", prompt_version=PROMPT_VERSION, generated_at=now_utc())
     db.add(row)
-    db.flush()
+    db.commit()  # visible at once; any failure below leaves a readable reason behind
+    try:
+        facts = build_facts(db, scope, week)
+        row.facts = _storable(facts)
+        db.commit()
+    except Exception as e:  # noqa: BLE001
+        db.rollback()
+        row.status, row.error = "failed", f"collecting facts: {type(e).__name__}: {e}"[:500]
+        return row
     if llm is None:
-        row.error = "The AI model is not connected."
+        row.status, row.error = "unavailable", "The AI model is not connected."
         return row
     row.model = llm.model
     user = (f"Scope: {facts['scope_name']} ({scope}). Week commencing {week.isoformat()} (Australia/Sydney). Search Console period: {facts.get('gsc_period') or 'unknown'}.\n"
@@ -229,6 +236,7 @@ def generate(db: Session, scope: str, week: date, llm: LLM | None, job_run_id: i
     try:
         out = llm.structured(system=SYSTEM, user=user, schema=AnalysisOut, tool_name="submit_analysis", max_tokens=16000, effort="medium")
     except (LLMError, BudgetExceeded, LLMUnavailable, Exception) as e:  # noqa: BLE001 - never fabricate an analysis
+        db.rollback()
         row.status, row.error = "failed", f"{type(e).__name__}: {e}"[:500]
         return row
     report, dropped = validate(db, out, facts)

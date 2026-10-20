@@ -103,7 +103,11 @@ def analysis(scope: str = "AU", db: Session = Depends(get_db)):
 # --------------------------------------------------------------------------- brief
 @router.get("/brief")
 def brief(scope: str = "AU", db: Session = Depends(get_db)):
-    return B.current_brief(db, _geo(scope))
+    out = B.current_brief(db, _geo(scope))
+    job = db.scalar(select(JobRun).where(JobRun.job_name == "generate_briefs").order_by(JobRun.id.desc()).limit(1))
+    out["latest_job"] = ({"id": job.id, "status": job.status, "trigger": job.trigger, "queued_at": job.queued_at, "started_at": job.started_at, "finished_at": job.finished_at,
+                          "error": (job.error or "")[:400] or None, "result": job.result} if job else None)
+    return out
 
 
 @router.get("/brief/export.md")

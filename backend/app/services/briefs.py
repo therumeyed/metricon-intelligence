@@ -173,21 +173,31 @@ def numbers_supported(text: str, cited: list[dict]) -> list[str]:
 
 # --------------------------------------------------------------------------- generation
 def generate_brief(db: Session, scope: str, week_start: date, llm: LLM | None, job_run_id: int | None = None) -> Brief:
-    facts = gather_facts(db, scope, week_start)
-    brief = Brief(scope=scope, week_start=week_start, status="unavailable", prompt_version=PROMPT_VERSION, input_facts=facts, generated_at=now_utc())
+    brief = Brief(scope=scope, week_start=week_start, status="running" if llm is not None else "unavailable", prompt_version=PROMPT_VERSION, generated_at=now_utc())
     db.add(brief)
-    db.flush()
+    db.commit()  # visible straight away: the page can say "being written", and any failure below leaves a readable reason behind
     if llm is None:
+        brief.status = "unavailable"
         brief.error = llm_mod.status().get("reason", "Claude is not connected")
         brief.summary_note = "Brief unavailable: the AI model is not connected. Tables and charts are unaffected."
         return brief
     brief.model = llm.model
+    try:
+        facts = gather_facts(db, scope, week_start)
+        brief.input_facts = facts
+        db.commit()
+    except Exception as e:  # noqa: BLE001
+        db.rollback()
+        brief.status, brief.error = "failed", f"collecting facts: {type(e).__name__}: {e}"[:500]
+        brief.summary_note = "Brief unavailable: the supporting facts could not be assembled."
+        return brief
     user = (f"Scope: {facts['scope_name']} ({scope}). Week commencing {week_start.isoformat()} (Australia/Sydney).\n"
             f"Known data gaps: {facts['data_gaps']}\n\n{wrap_document(json.dumps(facts['facts'], default=str, indent=1), 'computed-facts')}\n\n"
             "Write the highlights now.")
     try:
         out = llm.structured(system=SYSTEM, user=user, schema=BriefOut, tool_name="submit_brief", max_tokens=16000, effort="medium")
     except (LLMError, BudgetExceeded, LLMUnavailable, Exception) as e:  # noqa: BLE001 - AI failure must never fabricate a brief
+        db.rollback()
         brief.status, brief.error = "failed", f"{type(e).__name__}: {e}"[:500]
         brief.summary_note = "Brief unavailable: generation failed."
         return brief
@@ -227,7 +237,9 @@ def current_brief(db: Session, scope: str) -> dict:
     ok = db.scalar(select(Brief).where(Brief.scope == scope, Brief.status == "ok").order_by(Brief.week_start.desc(), Brief.id.desc()).limit(1))
     last = db.scalar(select(Brief).where(Brief.scope == scope).order_by(Brief.id.desc()).limit(1))
     return {"scope": scope, "scope_name": SCOPE_NAMES[scope], "brief": brief_dict(ok) if ok else None,
-            "latest_attempt": {"status": last.status, "generated_at": last.generated_at, "error": last.error, "week_start": last.week_start} if last else None,
+            "latest_attempt": ({"status": ("failed" if last.status == "running" and (now_utc() - last.generated_at) > timedelta(minutes=20) else last.status), "generated_at": last.generated_at,
+                                "error": (last.error or ("The run stopped before finishing (no result after 20 minutes)." if last.status == "running" and (now_utc() - last.generated_at) > timedelta(minutes=20) else None)),
+                                "week_start": last.week_start} if last else None),
             "unavailable": ok is None or (last is not None and last.status != "ok" and last.week_start >= (ok.week_start if ok else last.week_start))}
 
 

@@ -54,7 +54,7 @@ class LLM:
             raise LLMUnavailable(status()["reason"])
         import anthropic
 
-        kwargs: dict[str, Any] = {"api_key": s.anthropic_api_key, "max_retries": 3, "timeout": 120.0}
+        kwargs: dict[str, Any] = {"api_key": s.anthropic_api_key, "max_retries": 2, "timeout": 180.0}
         if s.anthropic_base_url:
             kwargs["base_url"] = s.anthropic_base_url
         self.client = anthropic.Anthropic(**kwargs)
@@ -71,10 +71,12 @@ class LLM:
         classification run at 'low'; synthesis (briefs, insights) asks for 'medium'.
         """
         spend.check_anthropic(self.db, self.calls)
-        resp = self.client.messages.parse(
+        # streamed: a long synthesis (thinking + a big structured answer) must not trip a non-streaming read timeout
+        with self.client.messages.stream(
             model=self.model, max_tokens=max_tokens, system=f"{system}\n\n{UNTRUSTED_NOTE}",
             messages=[{"role": "user", "content": user}], output_format=schema, output_config={"effort": effort},
-        )
+        ) as stream:
+            resp = stream.get_final_message()
         self.calls += 1
         usage = getattr(resp, "usage", None)
         spend.record(self.db, "anthropic", kind="estimated", amount=0, calls=1, job_run_id=self.job_run_id,
