@@ -198,7 +198,7 @@ def generate_brief(db: Session, scope: str, week_start: date, llm: LLM | None, j
         out = llm.structured(system=SYSTEM, user=user, schema=BriefOut, tool_name="submit_brief", max_tokens=16000, effort="medium")
     except (LLMError, BudgetExceeded, LLMUnavailable, Exception) as e:  # noqa: BLE001 - AI failure must never fabricate a brief
         db.rollback()
-        brief.status, brief.error = "failed", f"{type(e).__name__}: {e}"[:500]
+        brief.status, brief.error = "failed", llm_mod.friendly_error(e)[:500]
         brief.summary_note = "Brief unavailable: generation failed."
         return brief
     idx = fact_index(facts)

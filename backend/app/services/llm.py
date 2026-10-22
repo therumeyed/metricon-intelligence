@@ -30,6 +30,21 @@ class LLMUnavailable(RuntimeError):
     pass
 
 
+def friendly_error(e: BaseException) -> str:
+    """Plain-English reason for the errors people can fix themselves; anything else keeps its original text."""
+    t = f"{type(e).__name__}: {e}"
+    low = t.lower()
+    if "credit balance is too low" in low:
+        return "Anthropic says the account behind this API key is out of credit. Add credit under Plans & Billing at console.anthropic.com (the key belongs to that account), then try again."
+    if "authentication_error" in low or "invalid x-api-key" in low or "401" in low[:60]:
+        return "Anthropic rejected the API key. Check ANTHROPIC_API_KEY on this service."
+    if "rate_limit" in low or "429" in low[:60]:
+        return "Anthropic is rate-limiting this key right now. Try again in a few minutes."
+    if "overloaded" in low or "529" in low[:60]:
+        return "Anthropic is overloaded right now. Try again shortly."
+    return t
+
+
 class LLMError(RuntimeError):
     pass
 
@@ -120,4 +135,4 @@ def test_connection() -> dict:
         r = anthropic.Anthropic(**kwargs).messages.create(model=s.claude_model, max_tokens=8, messages=[{"role": "user", "content": "Reply with OK"}])
         return {"configured": True, "ok": True, "detail": f"Model {s.claude_model} answered.", "model": s.claude_model, "tokens": getattr(r.usage, "output_tokens", None)}
     except Exception as e:  # noqa: BLE001 - surface the provider's own message
-        return {"configured": True, "ok": False, "detail": f"{type(e).__name__}: {e}"[:400]}
+        return {"configured": True, "ok": False, "detail": friendly_error(e)[:400]}

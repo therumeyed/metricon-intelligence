@@ -24,7 +24,7 @@ from ..timeutil import now_utc
 from . import briefs as B
 from . import inventory
 from . import opportunities as O
-from .llm import LLM, LLMError, LLMUnavailable, wrap_document
+from .llm import LLM, LLMError, LLMUnavailable, friendly_error, wrap_document
 from .spend import BudgetExceeded
 
 PROMPT_VERSION = "analysis-2026-10-a"
@@ -237,7 +237,7 @@ def generate(db: Session, scope: str, week: date, llm: LLM | None, job_run_id: i
         out = llm.structured(system=SYSTEM, user=user, schema=AnalysisOut, tool_name="submit_analysis", max_tokens=16000, effort="medium")
     except (LLMError, BudgetExceeded, LLMUnavailable, Exception) as e:  # noqa: BLE001 - never fabricate an analysis
         db.rollback()
-        row.status, row.error = "failed", f"{type(e).__name__}: {e}"[:500]
+        row.status, row.error = "failed", friendly_error(e)[:500]
         return row
     report, dropped = validate(db, out, facts)
     report["dropped"] = dropped

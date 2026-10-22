@@ -51,3 +51,11 @@ def test_request_uses_schema_output_not_forced_tools(seeded):
 def test_bad_responses_raise_a_clear_error(seeded, r, msg):
     with pytest.raises(LLMError, match=msg):
         make(r, seeded).structured(system="s", user="u", schema=PageExtraction)
+
+
+def test_out_of_credit_is_explained_in_plain_english():
+    from app.services.llm import friendly_error
+
+    e = RuntimeError("Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API.'}}")
+    assert "out of credit" in friendly_error(e) and "Plans & Billing" in friendly_error(e)
+    assert friendly_error(ValueError("something else")) == "ValueError: something else"
