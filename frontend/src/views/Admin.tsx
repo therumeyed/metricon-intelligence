@@ -175,9 +175,21 @@ function Search() {
     const f = new FormData(); f.append("file", file); f.append("period_start", period.start); f.append("period_end", period.end); f.append("period_note", period.note);
     try { const r = await api.upload("/api/admin/gsc/import", f); setMsg(`Import queued (job ${r.job_id}). Identical data is recognised and not imported twice.`); setTimeout(() => { g.reload(); rows.reload(); }, 6000); } catch (e) { setMsg((e as Error).message); }
   };
+  const [vfile, setVfile] = useState<File | null>(null);
+  const [vmsg, setVmsg] = useState("");
+  const vimport = useFetch(`/api/ai-visibility`);
+  const uploadVis = async () => {
+    if (!vfile) return;
+    const f = new FormData(); f.append("file", vfile);
+    try { const r = await api.upload("/api/admin/ai-visibility/import", f); setVmsg(`Import queued (job ${r.job_id}). It takes about a minute; the AI visibility tab updates when it finishes.`); setTimeout(vimport.reload, 20000); } catch (e) { setVmsg((e as Error).message); }
+  };
   const assign = async (query: string, theme: string | null, excluded = false) => { await api.post("/api/admin/gsc/override", { query, theme, excluded }); rows.reload(); };
   return (
     <div className="stack">
+      <section className="card"><h3>AI search visibility (Ahrefs Brand Radar workbook)</h3>
+        <p className="small muted">The segmented workbook with the Data sheet plus the insight sheets. Every answer row is kept; figures are recalculated from the rows and cross-checked against the workbook's own. Re-uploading the same file changes nothing; a new export becomes the current one and the old stays on file.</p>
+        <div className="row" style={{ alignItems: "flex-end" }}><input type="file" accept=".xlsx" onChange={(e) => setVfile(e.target.files?.[0] ?? null)} /><button className="btn primary" disabled={!vfile} onClick={uploadVis}>Import</button></div>
+        <div className="small muted" style={{ marginTop: 6 }}>{vmsg}{vimport.data?.imported && <> Current: {vimport.data.import.file_name} – {vimport.data.import.rows.toLocaleString("en-AU")} answers, imported {fmtDateTime(vimport.data.import.imported_at)}.</>}</div></section>
       <section className="card"><h3>Import a Search Console export</h3>
         <p className="small muted">Two tabs: queries and pages. They are stored as separate datasets and never joined or added together. Re-importing the same data changes nothing; a new export is added alongside the old.</p>
         <div className="row" style={{ alignItems: "flex-end" }}><input type="file" accept=".xlsx" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />

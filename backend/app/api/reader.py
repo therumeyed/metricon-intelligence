@@ -67,6 +67,32 @@ def meta(db: Session = Depends(get_db)):
     }
 
 
+# --------------------------------------------------------------------------- AI search visibility
+@router.get("/ai-visibility")
+def ai_visibility(brand_type: str = "non_branded", platform: str | None = None, db: Session = Depends(get_db)):
+    from ..services import ai_visibility as V
+
+    imp = V.current(db)
+    if imp is None:
+        return {"imported": False}
+    ov = V.overview(db, imp, brand_type if brand_type in V.BRAND_TYPES else "non_branded", platform or None)
+    plats = sorted({r[0] for r in db.execute(select(V.AiVisRow.platform).where(V.AiVisRow.import_id == imp.id).distinct())})
+    return {"imported": True, "import": {"id": imp.id, "file_name": imp.file_name, "period_start": imp.period_start, "period_end": imp.period_end, "imported_at": imp.imported_at,
+                                         "rows": imp.row_count, "source_note": imp.source_note, "checks": imp.checks, "min_rows": imp.min_rows},
+            "overview": ov, "platform_options": plats, "insights": imp.insights, "opportunities": imp.opportunities, "narrative": imp.narrative, "domains": imp.domains, "untracked": imp.untracked}
+
+
+@router.get("/ai-visibility/keywords")
+def ai_visibility_keywords(topic: str | None = None, region: str | None = None, outcome: str | None = None, brand_type: str = "non_branded", platform: str | None = None,
+                           db: Session = Depends(get_db)):
+    from ..services import ai_visibility as V
+
+    imp = V.current(db)
+    if imp is None:
+        return []
+    return V.keywords(db, imp, topic, region, outcome, brand_type if brand_type in V.BRAND_TYPES else "non_branded", platform or None)
+
+
 # --------------------------------------------------------------------------- AI analysis + search opportunities
 _OPP_CACHE: dict = {}
 

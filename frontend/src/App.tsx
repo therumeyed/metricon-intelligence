@@ -7,6 +7,7 @@ import Offers from "./views/Offers";
 import Activity from "./views/Activity";
 import Conditions from "./views/Conditions";
 import Analysis from "./views/Analysis";
+import AiVisibility from "./views/AiVisibility";
 import Admin from "./views/Admin";
 
 export type Geo = "AU" | "VIC" | "NSW" | "QLD" | "SA";
@@ -18,6 +19,7 @@ export const useApp = () => useContext(AppCtx);
 const VIEWS = [
   { path: "/", label: "Market brief" },
   { path: "/demand", label: "Demand trends" },
+  { path: "/ai-visibility", label: "AI visibility" },
   { path: "/offers", label: "Offers in market" },
   { path: "/activity", label: "Competitor activity" },
   { path: "/conditions", label: "Market conditions" },
@@ -118,6 +120,7 @@ export default function App() {
         {path.startsWith("/activity") && <Activity />}
         {path.startsWith("/conditions") && <Conditions />}
         {path.startsWith("/analysis") && <Analysis />}
+        {path.startsWith("/ai-visibility") && <AiVisibility />}
         {path.startsWith("/admin") && (isAdmin ? <Admin /> : user.admin_gate ? <AdminUnlock onDone={setUser} /> : <Banner tone="bad">Administrator access required.</Banner>)}
       </main>
     </AppCtx.Provider>

@@ -796,3 +796,62 @@ class InsightReport(Base):
     facts: Mapped[dict | None] = mapped_column(JSONB)
     report: Mapped[dict | None] = mapped_column(JSONB)
     error: Mapped[str | None] = mapped_column(Text)
+
+
+# --------------------------------------------------------------------------- AI search visibility (Ahrefs Brand Radar export, segmented)
+class AiVisImport(Base):
+    """One upload of the segmented AI-visibility workbook. Answers are kept row by row; the narrative sheets are kept as supplied."""
+
+    __tablename__ = "ai_vis_import"
+    id: Mapped[int] = pk()
+    file_name: Mapped[str] = mapped_column(String(300))
+    file_sha256: Mapped[str] = mapped_column(String(64), unique=True)
+    source_note: Mapped[str | None] = mapped_column(Text)  # the workbook's own provenance / draft caveat, verbatim
+    period_start: Mapped[date | None] = mapped_column(Date)  # min/max of the rows' 'Updated' column
+    period_end: Mapped[date | None] = mapped_column(Date)
+    imported_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+    row_count: Mapped[int] = mapped_column(Integer, default=0)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=False)
+    min_rows: Mapped[int] = mapped_column(Integer, default=10)  # smallest segment we call a winner for
+    relevance: Mapped[dict] = mapped_column(JSONB, default=dict)  # topic -> weight from the workbook's Assumptions sheet (display order)
+    insights: Mapped[list] = mapped_column(JSONB, default=list)
+    published_kpis: Mapped[dict] = mapped_column(JSONB, default=dict)  # the workbook's own headline figures, used to cross-check ours
+    opportunities: Mapped[list] = mapped_column(JSONB, default=list)
+    narrative: Mapped[dict] = mapped_column(JSONB, default=dict)
+    domains: Mapped[dict] = mapped_column(JSONB, default=dict)
+    untracked: Mapped[dict] = mapped_column(JSONB, default=dict)
+    checks: Mapped[list] = mapped_column(JSONB, default=list)
+
+
+class AiVisRow(Base):
+    """One keyword x AI platform answer."""
+
+    __tablename__ = "ai_vis_row"
+    __table_args__ = (Index("ix_aivis_import_topic", "import_id", "topic"), Index("ix_aivis_import_region", "import_id", "region"))
+    id: Mapped[int] = pk()
+    import_id: Mapped[int] = mapped_column(ForeignKey("ai_vis_import.id", ondelete="CASCADE"))
+    row_id: Mapped[int] = mapped_column(Integer)
+    keyword: Mapped[str] = mapped_column(Text)
+    platform: Mapped[str] = mapped_column(String(40))
+    query_format: Mapped[str | None] = mapped_column(String(40))
+    topic: Mapped[str] = mapped_column(String(80))
+    region: Mapped[str] = mapped_column(String(60))
+    journey: Mapped[str | None] = mapped_column(String(40))
+    brand_type: Mapped[str] = mapped_column(String(60))
+    intent: Mapped[str | None] = mapped_column(String(40))
+    volume: Mapped[int] = mapped_column(Integer, default=0)
+    volume_capped: Mapped[int] = mapped_column(Integer, default=0)
+    primary_row: Mapped[bool] = mapped_column(Boolean, default=True)  # counts the keyword's volume once across platforms
+    excluded: Mapped[bool] = mapped_column(Boolean, default=False)
+    metricon_mentioned: Mapped[bool] = mapped_column(Boolean, default=False)
+    metricon_cited: Mapped[bool] = mapped_column(Boolean, default=False)
+    gj_mentioned: Mapped[bool] = mapped_column(Boolean, default=False)
+    carlisle_mentioned: Mapped[bool] = mapped_column(Boolean, default=False)
+    simonds_mentioned: Mapped[bool] = mapped_column(Boolean, default=False)
+    porter_mentioned: Mapped[bool] = mapped_column(Boolean, default=False)
+    opportunity_type: Mapped[str | None] = mapped_column(String(80))
+    opportunity_score: Mapped[float] = mapped_column(Float, default=0.0)
+    competitors_named: Mapped[str | None] = mapped_column(Text)
+    metricon_urls: Mapped[str | None] = mapped_column(Text)
+    cited_domains: Mapped[str | None] = mapped_column(Text)
+    updated_on: Mapped[date | None] = mapped_column(Date)

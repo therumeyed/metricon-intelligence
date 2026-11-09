@@ -543,6 +543,23 @@ async def gsc_import(file: UploadFile = File(...), period_start: str = Form(""),
     return {"job_id": run_id}
 
 
+@router.post("/ai-visibility/import")
+async def ai_visibility_import(file: UploadFile = File(...), db: Session = Depends(get_db), me: AppUser = Depends(auth.current_user)):
+    if not (file.filename or "").lower().endswith(".xlsx"):
+        raise HTTPException(400, "Upload the .xlsx workbook")
+    data = await file.read()
+    if len(data) > 60_000_000:
+        raise HTTPException(400, "file too large")
+    fd, path = tempfile.mkstemp(suffix=".xlsx")
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+    run_id = jobs.enqueue("import_ai_visibility", {"path": path, "file_name": file.filename}, trigger="manual", user_id=me.id)
+    audit(db, me, "ai_visibility.import", "job", run_id, note=file.filename)
+    db.commit()
+    jobs.execute_in_thread(run_id)
+    return {"job_id": run_id}
+
+
 @router.get("/gsc/queries")
 def gsc_queries(q: str = "", unmapped: bool = False, theme: Optional[str] = None, limit: int = 100, db: Session = Depends(get_db)):
     from ..models import GscImport
@@ -648,8 +665,8 @@ def job_list(db: Session = Depends(get_db)):
 def job_run(body: RunIn, db: Session = Depends(get_db), me: AppUser = Depends(auth.current_user)):
     if body.name not in jobs.REGISTRY:
         raise HTTPException(400, "unknown job")
-    if body.name == "import_gsc":
-        raise HTTPException(400, "use the GSC upload")
+    if body.name in ("import_gsc", "import_ai_visibility"):
+        raise HTTPException(400, "use the upload on the Admin page")
     rid = jobs.enqueue(body.name, body.params, trigger="manual", user_id=me.id)
     audit(db, me, "job.run", "job", rid, after={"name": body.name})
     db.commit()

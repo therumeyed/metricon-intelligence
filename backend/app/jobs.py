@@ -451,6 +451,28 @@ def import_gsc(ctx: JobContext) -> dict:
             pass
 
 
+@job("import_ai_visibility")
+def import_ai_visibility(ctx: JobContext) -> dict:
+    """Import the segmented AI-visibility workbook (idempotent by file content). Figures are recalculated from the answer rows and cross-checked against the workbook's own."""
+    import os
+
+    from .services import ai_visibility
+
+    path = ctx.params["path"]
+    try:
+        with session_scope() as db:
+            r = ai_visibility.import_workbook(db, path, file_name=ctx.params.get("file_name"))
+        failed = [c for c in r.get("checks", []) if not c["ok"]]
+        if failed:
+            r["errors"] = [{"check": c["check"], "detail": c["detail"]} for c in failed]
+        return r
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
 @job("classify_gsc")
 def classify_gsc(ctx: JobContext) -> dict:
     """Batch-classify ambiguous high-impression queries with Claude (optional; rules already cover the bulk)."""
