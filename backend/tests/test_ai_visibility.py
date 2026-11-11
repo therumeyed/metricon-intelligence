@@ -81,7 +81,8 @@ def make_workbook(path, rows=None, kpi_named=None, with_summary=True):
         ss.append(["Dimension", "Segment", "Rows", "Vol", "Metricon mention %"])
         for t in ("House & land packages", "Display homes", "Home designs & floor plans", "Interiors, inclusions & fit-out"):
             rs = [r for r in on if r[4] == t]
-            ss.append(["Product / topic", t, len(rs), 0, sum(r[13] for r in rs) / len(rs)])
+            if rs:
+                ss.append(["Product / topic", t, len(rs), 0, sum(r[13] for r in rs) / len(rs)])
     wb.save(path)
 
 
@@ -216,3 +217,67 @@ def test_api_says_nothing_imported_then_serves_the_overview(open_client, seeded,
 def test_upload_refuses_anything_but_xlsx(open_client):
     r = open_client.post("/api/admin/ai-visibility/import", files={"file": ("x.csv", b"a,b", "text/csv")}, headers=H)
     assert r.status_code == 400
+
+
+def test_city_is_read_from_the_search_wording_and_ambiguous_searches_are_left_out():
+    assert V.city_of("House designs Melbourne") == "Melbourne" and V.city_of("home builders gold coast") == "Gold Coast"
+    assert V.city_of("builders on the Sunshine  Coast") == "Sunshine Coast"
+    assert V.city_of("melbourne to sydney builders") is None  # two cities: not counted for either
+    assert V.city_of("house designs") is None and V.city_of("melbournes") is None and V.city_of(None) is None
+
+
+def city_rows():
+    r, i = [], 0
+
+    def add(n, kw, topic, region, m, c, **k):
+        nonlocal i
+        for _ in range(n):
+            i += 1
+            r.append(row(i, kw, topic, region, m, c, **k))
+    add(12, "house designs melbourne", "Home designs & floor plans", "VIC", 1, 1)
+    add(4, "display homes melbourne", "Display homes", "VIC", 0, 0, car=1)
+    add(11, "house designs sydney", "Home designs & floor plans", "NSW", 0, 0, gj=1)
+    add(3, "house designs sydney", "Home designs & floor plans", "NSW", 1, 0)
+    add(11, "house and land gold coast", "House & land packages", "QLD", 1, 0)
+    add(5, "house designs brisbane", "Home designs & floor plans", "QLD", 0, 0)
+    add(6, "house designs victoria", "Home designs & floor plans", "VIC", 1, 1)  # a state but no city
+    add(2, "melbourne metricon", "Home designs & floor plans", "VIC", 1, 1, btype="Metricon branded")
+    return r
+
+
+def test_overview_breaks_answers_down_by_city_in_the_order_requested(seeded, tmp_path):
+    p = tmp_path / "c.xlsx"
+    make_workbook(p, city_rows())
+    i = seeded.get(AiVisImport, V.import_workbook(seeded, p)["import_id"])
+    seeded.commit()
+    o = V.overview(seeded, i)
+    assert [c["city"] for c in o["by_city"]] == ["Melbourne", "Sydney", "Adelaide", "Gold Coast", "Brisbane", "Sunshine Coast"]
+    by = {c["city"]: c for c in o["by_city"]}
+    assert by["Melbourne"]["n"] == 16 and by["Melbourne"]["state"] == "VIC" and round(by["Melbourne"]["mention"], 3) == round(12 / 16, 3) and by["Melbourne"]["winner"] == "Metricon"
+    assert by["Sydney"]["n"] == 14 and by["Sydney"]["winner"] == "G.J. Gardner" and by["Sydney"]["outcomes"]["rival_only"] == 11
+    assert by["Gold Coast"]["outcomes"]["named_not_cited"] == 11
+    assert by["Adelaide"]["n"] == 0 and by["Sunshine Coast"]["n"] == 0  # present, but no answers: shown as such, never zero-filled
+    assert by["Brisbane"]["low_sample"] is True  # 5 answers
+
+
+def test_city_grid_uses_only_searches_that_name_a_city_and_state_grid_is_unchanged(seeded, tmp_path):
+    p = tmp_path / "c.xlsx"
+    make_workbook(p, city_rows())
+    i = seeded.get(AiVisImport, V.import_workbook(seeded, p)["import_id"])
+    seeded.commit()
+    o = V.overview(seeded, i)
+    des = next(g for g in o["city_grid"] if g["topic"] == "Home designs & floor plans")
+    assert des["cells"]["Melbourne"]["n"] == 12 and des["cells"]["Sydney"]["n"] == 14 and des["all"]["n"] == 12 + 14 + 5  # 'victoria' (no city) is not in the city view
+    sd = next(g for g in o["grid"] if g["topic"] == "Home designs & floor plans")
+    assert sd["cells"]["VIC"]["n"] == 12 + 6  # ...but it is in the state view
+    assert [c["city"] for c in o["city_columns"]] == [c["city"] for c in o["by_city"]] and "city_note" in o
+
+
+def test_keywords_can_be_drilled_by_city(seeded, tmp_path):
+    p = tmp_path / "c.xlsx"
+    make_workbook(p, city_rows())
+    i = seeded.get(AiVisImport, V.import_workbook(seeded, p)["import_id"])
+    seeded.commit()
+    ks = V.keywords(seeded, i, "Home designs & floor plans", None, None, city="Sydney")
+    assert [k["keyword"] for k in ks] == ["house designs sydney"] and ks[0]["platforms"] == 14
+    assert V.keywords(seeded, i, None, None, None, city="Brisbane")[0]["keyword"] == "house designs brisbane"

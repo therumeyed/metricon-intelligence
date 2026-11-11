@@ -84,13 +84,13 @@ def ai_visibility(brand_type: str = "non_branded", platform: str | None = None, 
 
 @router.get("/ai-visibility/keywords")
 def ai_visibility_keywords(topic: str | None = None, region: str | None = None, outcome: str | None = None, brand_type: str = "non_branded", platform: str | None = None,
-                           db: Session = Depends(get_db)):
+                           city: str | None = None, db: Session = Depends(get_db)):
     from ..services import ai_visibility as V
 
     imp = V.current(db)
     if imp is None:
         return []
-    return V.keywords(db, imp, topic, region, outcome, brand_type if brand_type in V.BRAND_TYPES else "non_branded", platform or None)
+    return V.keywords(db, imp, topic, region, outcome, brand_type if brand_type in V.BRAND_TYPES else "non_branded", platform or None, city=city or None)
 
 
 # --------------------------------------------------------------------------- AI analysis + search opportunities

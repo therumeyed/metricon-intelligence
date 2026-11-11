@@ -15,7 +15,11 @@ const TIER: Record<string, string> = { core: "Core", secondary: "Decision suppor
 const BRAND_TYPES = [{ id: "non_branded", label: "Non-branded searches" }, { id: "competitor_branded", label: "Competitor-branded" }, { id: "metricon_branded", label: "Metricon-branded" }, { id: "all", label: "Everything" }];
 const bin = (v: number) => (v < 0.15 ? "h0" : v < 0.3 ? "h1" : v < 0.45 ? "h2" : v < 0.6 ? "h3" : "h4");
 
-type Drill = { topic?: string; region?: string; outcome?: string; title: string };
+type Drill = { topic?: string; region?: string; city?: string; outcome?: string; title: string };
+
+function Segmented<T extends string>({ value, onChange, items, label }: { value: T; onChange: (v: T) => void; items: { id: T; label: string }[]; label: string }) {
+  return <div className="row small" role="group" aria-label={label}>{items.map((i) => <button key={i.id} className={`btn sm ${value === i.id ? "primary" : ""}`} aria-pressed={value === i.id} onClick={() => onChange(i.id)}>{i.label}</button>)}</div>;
+}
 
 function OutcomeBar({ o, n }: { o: Record<string, number>; n: number }) {
   return (
@@ -33,7 +37,7 @@ function OutcomeLegend() {
 }
 
 function DrillPanel({ d, filters, onClose }: { d: Drill; filters: { brand_type: string; platform: string }; onClose: () => void }) {
-  const k = useFetch(`/api/ai-visibility/keywords${qs({ topic: d.topic, region: d.region, outcome: d.outcome, ...filters })}`, [JSON.stringify(d), filters.brand_type, filters.platform]);
+  const k = useFetch(`/api/ai-visibility/keywords${qs({ topic: d.topic, region: d.region, city: d.city, outcome: d.outcome, ...filters })}`, [JSON.stringify(d), filters.brand_type, filters.platform]);
   return (
     <Panel onClose={onClose} title={<><h2 style={{ margin: 0 }}>{d.title}</h2><div className="small muted">{d.outcome ? `Searches where: ${OUT_TEXT[d.outcome]}` : "All searches in this slice"} · ranked by opportunity score</div></>}>
       {k.loading && !k.data && <Loading />}
@@ -50,9 +54,14 @@ function DrillPanel({ d, filters, onClose }: { d: Drill; filters: { brand_type: 
 function Heatmap({ ov, onPick }: { ov: any; onPick: (d: Drill) => void }) {
   const [metric, setMetric] = useState<"mention" | "cited">("mention");
   const [small, setSmall] = useState(false);
-  const cols: string[] = ov.columns;
-  const big = ov.grid.filter((g: any) => g.all.n >= 60);
-  const tiny = ov.grid.filter((g: any) => g.all.n < 60);
+  const [by, setBy] = useState<"state" | "city">("state");
+  const city = by === "city";
+  const cols: string[] = city ? ov.city_columns.map((c: any) => c.city) : ov.columns;
+  const grid = city ? ov.city_grid : ov.grid;
+  const floor = city ? 30 : 60;
+  const big = grid.filter((g: any) => g.all.n >= floor);
+  const tiny = grid.filter((g: any) => g.all.n < floor);
+  const pick = (topic: string, place: string, label: string) => onPick({ topic, ...(place === "all" ? {} : city ? { city: place } : { region: place }), title: `${topic} · ${place === "all" ? (city ? "all named cities" : "all places") : label}` });
   const cell = (c: any, topic: string, region: string, label: string) => {
     if (!c || !c.n) return <div className="hc none" title="No answers in this slice">–</div>;
     const v = c[metric];
@@ -61,8 +70,7 @@ function Heatmap({ ov, onPick }: { ov: any; onPick: (d: Drill) => void }) {
     return (
       <div className={`hc ${bin(v)} ${c.low_sample ? "low" : ""}`} tabIndex={0} role="button" aria-label={`${topic}, ${label}: ${pc(v)} ${metric === "mention" ? "named" : "cited"}, ${c.n} answers${rivalAhead ? `, ${c.winner} ahead` : ""}`}
         title={`${topic} · ${label}\nMetricon named in ${pc(c.mention)} of ${c.n} answers, site cited in ${pc(c.cited)}\n${c.low_sample ? `Fewer than ${ov.min_rows} answers: directional only` : c.winner === "Metricon" ? `Metricon leads by ${c.lead_pts} pts` : `${c.winner} leads${c.lead_pts ? ` by ${c.lead_pts} pts` : ""}`}`}
-        onClick={() => onPick({ topic, region: region === "all" ? undefined : region, title: `${topic} · ${region === "all" ? "all places" : label}` })}
-        onKeyDown={(e) => e.key === "Enter" && onPick({ topic, region: region === "all" ? undefined : region, title: `${topic} · ${region === "all" ? "all places" : label}` })}>
+        onClick={() => pick(topic, region, label)} onKeyDown={(e) => e.key === "Enter" && pick(topic, region, label)}>
         {pc(v)}{rivalAhead ? <span className="rival">{TAG[c.winner] ?? c.winner} ahead</span> : null}
       </div>
     );
@@ -70,16 +78,19 @@ function Heatmap({ ov, onPick }: { ov: any; onPick: (d: Drill) => void }) {
   return (
     <section className="card">
       <div className="row between"><div><h3 style={{ margin: 0 }}>Where Metricon shows up – and where it doesn’t</h3>
-        <p className="small muted" style={{ margin: "2px 0 0" }}>Each square is a topic in a place. The number is how often AI answers {metric === "mention" ? "name Metricon" : "cite metricon.com.au"}; an orange tag means a rival is named more often. Click any square to see the searches behind it.</p></div>
-        <div className="row small" role="group" aria-label="Measure"><button className={`btn sm ${metric === "mention" ? "primary" : ""}`} onClick={() => setMetric("mention")}>Metricon named</button><button className={`btn sm ${metric === "cited" ? "primary" : ""}`} onClick={() => setMetric("cited")}>Website cited</button></div></div>
-      <div className="tablewrap" style={{ border: 0, marginTop: 8 }}><table className="heat"><thead><tr><th className="rowh">Topic</th>{cols.map((c) => <th key={c}>{c}{c === "No state named" && <Help text="National or generic searches with no place in them, such as “house designs”" />}</th>)}<th>All places</th></tr></thead>
+        <p className="small muted" style={{ margin: "2px 0 0" }}>Each square is a topic in a {city ? "city" : "state"}. The number is how often AI answers {metric === "mention" ? "name Metricon" : "cite metricon.com.au"}; an orange tag means a rival is named more often. Click any square to see the searches behind it.</p></div>
+        <div className="stack" style={{ gap: 6, alignItems: "flex-end" }}>
+          <Segmented label="Place" value={by} onChange={setBy} items={[{ id: "state", label: "By state" }, { id: "city", label: "By city" }]} />
+          <Segmented label="Measure" value={metric} onChange={setMetric} items={[{ id: "mention", label: "Metricon named" }, { id: "cited", label: "Website cited" }]} /></div></div>
+      <div className="tablewrap" style={{ border: 0, marginTop: 8 }}><table className="heat"><thead><tr><th className="rowh">Topic</th>{cols.map((c) => <th key={c}>{c}{c === "No state named" && <Help text="National or generic searches with no place in them, such as “house designs”" />}{city && <div className="tiny faint" style={{ fontWeight: 500 }}>{ov.city_columns.find((x: any) => x.city === c)?.state}</div>}</th>)}<th>{city ? "All named cities" : "All places"}</th></tr></thead>
         <tbody>{(small ? [...big, ...tiny] : big).map((g: any) => (
           <tr key={g.topic}><td className="rowh">{g.topic}<div className="tiny faint" style={{ fontWeight: 500 }}>{TIER[g.tier]} · {nf(g.all.n)} answers</div></td>
-            {cols.map((c) => <td key={c}>{cell(g.cells[c], g.topic, c, c)}</td>)}<td>{cell(g.all, g.topic, "all", "all places")}</td></tr>))}</tbody></table></div>
-      {tiny.length > 0 && <button className="btn sm" onClick={() => setSmall(!small)}>{small ? "Hide" : "Show"} {tiny.length} small topics (under 60 answers: {tiny.map((t: any) => t.topic).join(", ")})</button>}
+            {cols.map((c) => <td key={c}>{cell(g.cells[c], g.topic, c, c)}</td>)}<td>{cell(g.all, g.topic, "all", city ? "all named cities" : "all places")}</td></tr>))}</tbody></table></div>
+      {city && <p className="tiny faint" style={{ margin: "6px 0 0" }}>{ov.city_note}</p>}
+      {tiny.length > 0 && <button className="btn sm" onClick={() => setSmall(!small)}>{small ? "Hide" : "Show"} {tiny.length} small topics (under {floor} answers: {tiny.map((t: any) => t.topic).join(", ")})</button>}
       <div className="legendrow"><span>Share of answers:</span>{[["h0", "under 15%"], ["h1", "15–30%"], ["h2", "30–45%"], ["h3", "45–60%"], ["h4", "60%+"]].map(([c, t]) => <span key={c}><i className={`sw hc ${c}`} style={{ display: "inline-block", minHeight: 14 }} />{t}</span>)}
         <span><i className="sw" style={{ background: "var(--s2)" }} />rival named more often</span><span><i className="sw" style={{ border: "1px dashed var(--ink-3)" }} />under {ov.min_rows} answers – too few to read</span></div>
-      {Object.keys(ov.outside_markets).length > 0 && <p className="tiny faint" style={{ margin: "6px 0 0" }}>Not shown: {Object.entries(ov.outside_markets).map(([k, v]) => `${k} (${v} answers)`).join(", ")} – outside Metricon’s states.</p>}
+      {!city && Object.keys(ov.outside_markets).length > 0 && <p className="tiny faint" style={{ margin: "6px 0 0" }}>Not shown: {Object.entries(ov.outside_markets).map(([k, v]) => `${k} (${v} answers)`).join(", ")} – outside Metricon’s states.</p>}
     </section>
   );
 }
@@ -106,14 +117,19 @@ function Lift({ ov, onPick }: { ov: any; onPick: (d: Drill) => void }) {
 }
 
 function Outcomes({ ov, onPick }: { ov: any; onPick: (d: Drill) => void }) {
+  const [by, setBy] = useState<"topic" | "state" | "city">("topic");
+  const rows: { key: string; label: string; sub: string; o: Record<string, number>; n: number; drill: Drill }[] =
+    by === "topic" ? ov.grid.map((g: any) => ({ key: g.topic, label: g.topic, sub: `${nf(g.all.n)} answers`, o: g.all.outcomes, n: g.all.n, drill: { topic: g.topic, title: g.topic } }))
+    : by === "state" ? ov.by_state.map((s: any) => ({ key: s.region, label: s.region, sub: `${nf(s.n)} answers`, o: s.outcomes, n: s.n, drill: { region: s.region, title: s.region } }))
+    : ov.by_city.map((c: any) => ({ key: c.city, label: c.city, sub: c.n ? `${c.state} · ${nf(c.n)} answers${c.low_sample ? " · few" : ""}` : `${c.state} · no answers`, o: c.outcomes ?? {}, n: c.n, drill: { city: c.city, title: c.city } }));
   return (
     <section className="card">
-      <h3 style={{ margin: 0 }}>What AI does when it answers</h3>
-      <p className="small muted" style={{ margin: "2px 0 8px" }}>For each topic, the share of answers in each outcome. Blue is good: Metricon is named. Orange is the sharpest gap: a rival is named and Metricon isn’t. Grey is open ground nobody owns yet.</p>
+      <div className="row between"><h3 style={{ margin: 0 }}>What AI does when it answers</h3><Segmented label="Group by" value={by} onChange={setBy} items={[{ id: "topic", label: "By topic" }, { id: "state", label: "By state" }, { id: "city", label: "By city" }]} /></div>
+      <p className="small muted" style={{ margin: "2px 0 8px" }}>For each {by}, the share of answers in each outcome. Blue is good: Metricon is named. Orange is the sharpest gap: a rival is named and Metricon isn’t. Grey is open ground nobody owns yet.</p>
       <OutcomeLegend />
-      <div style={{ marginTop: 10 }}>{ov.grid.map((g: any) => (
-        <div key={g.topic} style={{ display: "grid", gridTemplateColumns: "minmax(170px, 1fr) minmax(220px, 3fr)", gap: 12, alignItems: "center", padding: "5px 0", cursor: "pointer" }} onClick={() => onPick({ topic: g.topic, title: g.topic })}>
-          <div className="small"><b>{g.topic}</b><div className="tiny faint">{nf(g.all.n)} answers</div></div><OutcomeBar o={g.all.outcomes} n={g.all.n} /></div>))}</div>
+      <div style={{ marginTop: 10 }}>{rows.map((r) => (
+        <div key={r.key} style={{ display: "grid", gridTemplateColumns: "minmax(170px, 1fr) minmax(220px, 3fr)", gap: 12, alignItems: "center", padding: "5px 0", cursor: r.n ? "pointer" : "default" }} onClick={() => r.n && onPick(r.drill)}>
+          <div className="small"><b>{r.label}</b><div className="tiny faint">{r.sub}</div></div>{r.n ? <OutcomeBar o={r.o} n={r.n} /> : <div className="tiny faint">No searches name this city in the data</div>}</div>))}</div>
     </section>
   );
 }
@@ -181,6 +197,10 @@ function MiniBars({ rows }: { rows: { label: string; v: number; me?: boolean; no
 }
 
 function Sources({ ov, domains, untracked }: { ov: any; domains: any; untracked: any }) {
+  const [by, setBy] = useState<"state" | "city">("state");
+  const places: { key: string; label: string; n: number; low?: boolean; winner?: string; rates?: any }[] = by === "state"
+    ? ov.by_state.map((s: any) => ({ key: s.region, label: s.region, n: s.n, low: s.low_sample, winner: s.winner, rates: s.rates }))
+    : ov.by_city.map((c: any) => ({ key: c.city, label: `${c.city} (${c.state})`, n: c.n, low: c.low_sample, winner: c.winner, rates: c.rates }));
   const dr = (domains.rows ?? []).slice(0, 14);
   const maxd = Math.max(...dr.map((d: any) => d["% of all answers"] ?? 0), 0.01);
   return (
@@ -190,10 +210,11 @@ function Sources({ ov, domains, untracked }: { ov: any; domains: any; untracked:
           {ov.platforms.map((p: any) => (
             <div key={p.platform} style={{ padding: "6px 0", borderTop: "1px solid var(--line-soft)" }}><div className="row between small"><b>{p.platform}</b><span className="muted">{nf(p.n)} answers{p.low_sample ? " · directional" : ""}</span></div>
               <MiniBars rows={[{ label: "Named", v: p.mention, me: true }, { label: "Site cited", v: p.cited }]} /></div>))}</section>
-        <section className="card"><h3 style={{ margin: 0 }}>Who AI names, by state</h3><p className="small muted" style={{ margin: "2px 0 8px" }}>Share of answers naming each tracked builder. Metricon in blue.</p>
-          {ov.by_state.map((s: any) => (
-            <div key={s.region} style={{ padding: "6px 0", borderTop: "1px solid var(--line-soft)" }}><div className="row between small"><b>{s.region}</b><span className="muted">{nf(s.n ?? 0)}{s.winner && s.winner !== "Metricon" ? ` · ${s.winner} ahead` : s.winner === "Metricon" ? " · Metricon ahead" : ""}</span></div>
-              <MiniBars rows={[{ label: "Metricon", v: s.rates["Metricon"], me: true }, ...Object.keys(BRANDS).filter((b) => s.rates[b] > 0.005).map((b) => ({ label: BRANDS[b], v: s.rates[b] }))]} /></div>))}</section>
+        <section className="card"><div className="row between"><h3 style={{ margin: 0 }}>Who AI names, by {by}</h3><Segmented label="Place" value={by} onChange={setBy} items={[{ id: "state", label: "State" }, { id: "city", label: "City" }]} /></div>
+          <p className="small muted" style={{ margin: "2px 0 8px" }}>Share of answers naming each tracked builder. Metricon in blue.{by === "city" ? ` ${ov.city_note}` : ""}</p>
+          {places.map((s) => (
+            <div key={s.key} style={{ padding: "6px 0", borderTop: "1px solid var(--line-soft)" }}><div className="row between small"><b>{s.label}</b><span className="muted">{s.n ? `${nf(s.n)} answers${s.low ? " · few" : s.winner === "Metricon" ? " · Metricon ahead" : s.winner && s.winner !== "Tie" && s.winner !== "No tracked builder" ? ` · ${s.winner} ahead` : ""}` : "no answers"}</span></div>
+              {s.n ? <MiniBars rows={[{ label: "Metricon", v: s.rates["Metricon"], me: true }, ...Object.keys(BRANDS).filter((b) => s.rates[b] > 0.005).map((b) => ({ label: BRANDS[b], v: s.rates[b] }))]} /> : <div className="tiny faint">No searches name this city in the data.</div>}</div>))}</section>
       </div>
       <section className="card"><h3 style={{ margin: 0 }}>Which websites AI cites</h3><p className="small muted" style={{ margin: "2px 0 8px" }}>{domains.caption} The column on the right is where Metricon is <i>not</i> named – the sources shaping those answers, and so the places to earn a mention.</p>
         <div className="tablewrap"><table><thead><tr><th>Website</th><th>Type</th><th style={{ minWidth: 200 }}>Cited in % of all answers</th><th className="r">Where Metricon is absent</th></tr></thead><tbody>

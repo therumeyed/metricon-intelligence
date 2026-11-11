@@ -8,6 +8,7 @@ never ranked as a winner.
 from __future__ import annotations
 
 import hashlib
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -24,6 +25,8 @@ STATES = ["VIC", "NSW", "QLD", "SA"]
 OUTSIDE = ["WA", "ACT", "TAS", "NT"]
 NO_STATE = "No state named"
 REGION_COLUMNS = STATES + [NO_STATE]
+CITIES = [("Melbourne", "VIC"), ("Sydney", "NSW"), ("Adelaide", "SA"), ("Gold Coast", "QLD"), ("Brisbane", "QLD"), ("Sunshine Coast", "QLD")]
+CITY_RX = {c: re.compile(r"\b" + c.lower().replace(" ", r"\s+") + r"\b") for c, _ in CITIES}
 BRANDS = [("Metricon", "metricon_mentioned"), ("G.J. Gardner", "gj_mentioned"), ("Carlisle", "carlisle_mentioned"), ("Simonds", "simonds_mentioned"), ("Porter Davis", "porter_mentioned")]
 OUTCOMES = [
     ("won", "Named and linked"), ("named_not_cited", "Named, our site not cited"), ("cited_not_named", "Site cited, brand not named"),
@@ -39,6 +42,13 @@ OUTCOME_OF = {
 BRAND_TYPES = {"non_branded": ["Non-branded"], "metricon_branded": ["Metricon branded"], "competitor_branded": ["Competitor branded"], "all": None}
 REQUIRED = ["Row ID", "Keyword", "AI platform", "Product / topic", "Region", "Brand type", "Excluded", "Metricon mentioned", "Metricon cited", "GJ Gardner mentioned",
             "Carlisle mentioned", "Simonds mentioned", "Opportunity type", "Opportunity score"]
+
+
+def city_of(keyword: str) -> str | None:
+    """The city a search names, read from its wording ('house designs melbourne'). The workbook has no city column. Searches naming no city, or two, return None."""
+    k = (keyword or "").lower()
+    hits = [c for c, rx in CITY_RX.items() if rx.search(k)]
+    return hits[0] if len(hits) == 1 else None
 
 
 def region_group(region: str) -> str:
@@ -154,6 +164,7 @@ class Rw:
     topic: str
     region: str
     group: str
+    city: str | None
     journey: str | None
     brand_type: str
     volume_capped: int
@@ -175,7 +186,7 @@ def _outcome(opp: str | None, mentioned: bool, cited: bool) -> str:
 
 
 def to_rw(r: AiVisRow) -> Rw:
-    return Rw(r.keyword, r.platform, r.topic, r.region, region_group(r.region), r.journey, r.brand_type, r.volume_capped, r.primary_row, r.metricon_mentioned, r.metricon_cited,
+    return Rw(r.keyword, r.platform, r.topic, r.region, region_group(r.region), city_of(r.keyword), r.journey, r.brand_type, r.volume_capped, r.primary_row, r.metricon_mentioned, r.metricon_cited,
               {"Metricon": r.metricon_mentioned, "G.J. Gardner": r.gj_mentioned, "Carlisle": r.carlisle_mentioned, "Simonds": r.simonds_mentioned, "Porter Davis": r.porter_mentioned},
               _outcome(r.opportunity_type, r.metricon_mentioned, r.metricon_cited), r.opportunity_score, r.competitors_named)
 
@@ -242,13 +253,22 @@ def overview(db: Session, imp: AiVisImport, brand_type: str = "non_branded", pla
     grid, pockets = [], []
     by_tr = defaultdict(list)
     by_t = defaultdict(list)
+    by_tc = defaultdict(list)
+    by_tcity = defaultdict(list)
     for r in rows:
         by_tr[(r.topic, r.group)].append(r)
         by_t[r.topic].append(r)
+        if r.city:
+            by_tc[(r.topic, r.city)].append(r)
+            by_tcity[r.topic].append(r)
+    city_names = [c for c, _ in CITIES]
+    city_grid = []
     for t in topics:
         cells = {c: agg(by_tr.get((t, c), []), mr) for c in REGION_COLUMNS}
         grid.append({"topic": t, "tier": tier(imp, t), "all": agg(by_t[t], mr), "cells": cells,
                      "outside_markets": sum(len(by_tr.get((t, c), [])) for c in OUTSIDE)})
+        if by_tcity[t]:
+            city_grid.append({"topic": t, "tier": tier(imp, t), "all": agg(by_tcity[t], mr), "cells": {c: agg(by_tc.get((t, c), []), mr) for c in city_names}})
     for (t, g), rs in by_tr.items():
         if g in OUTSIDE or len(rs) < mr:
             continue
@@ -284,15 +304,25 @@ def overview(db: Session, imp: AiVisImport, brand_type: str = "non_branded", pla
         rs = [r for r in rows if r.group == g]
         if rs:
             a = agg(rs, mr)
-            by_state.append({"region": g, "n": a["n"], "rates": a["rates"], "winner": a["winner"], "lead_pts": a["lead_pts"], "cited": a["cited"]})
+            by_state.append({"region": g, "n": a["n"], "rates": a["rates"], "winner": a["winner"], "lead_pts": a["lead_pts"], "cited": a["cited"], "mention": a["mention"],
+                             "outcomes": a["outcomes"], "low_sample": a["low_sample"]})
+    by_city = []
+    for c, st in CITIES:
+        rs = [r for r in rows if r.city == c]
+        a = agg(rs, mr)
+        by_city.append({"city": c, "state": st, **({"n": 0} if not rs else {"n": a["n"], "rates": a["rates"], "winner": a["winner"], "lead_pts": a["lead_pts"], "cited": a["cited"], "mention": a["mention"],
+                                                                         "outcomes": a["outcomes"], "low_sample": a["low_sample"]})})
     kpi = {"answers": total["n"], "mention": total["mention"], "cited": total["cited"], "rates": total["rates"], "outcomes": total["outcomes"]}
-    return {"empty": False, "filters": {"brand_type": brand_type, "platform": platform}, "kpi": kpi, "grid": grid, "columns": REGION_COLUMNS, "pockets": pockets[:10], "awareness_pockets": awareness,
+    return {"empty": False, "filters": {"brand_type": brand_type, "platform": platform}, "kpi": kpi, "grid": grid, "columns": REGION_COLUMNS, "city_grid": city_grid, "city_columns": [{"city": c, "state": st} for c, st in CITIES], "by_city": by_city,
+            "city_note": "Cities are read from the wording of each search (for example 'house designs melbourne'); the workbook has no city column, so searches that name only a suburb or region are not counted here.", "pockets": pockets[:10], "awareness_pockets": awareness,
             "platforms": plat, "journey": jr, "by_state": by_state, "outcomes": [{"key": k, "label": lbl} for k, lbl in OUTCOMES], "min_rows": mr,
             "outside_markets": {g: sum(1 for r in rows if r.region == g) for g in OUTSIDE if any(r.region == g for r in rows)}}
 
 
-def keywords(db: Session, imp: AiVisImport, topic: str | None, region: str | None, outcome: str | None, brand_type: str = "non_branded", platform: str | None = None, limit: int = 40) -> list[dict]:
-    rows = [r for r in select_rows(db, imp, brand_type, platform) if (not topic or r.topic == topic) and (not region or r.group == region) and (not outcome or r.outcome == outcome)]
+def keywords(db: Session, imp: AiVisImport, topic: str | None, region: str | None, outcome: str | None, brand_type: str = "non_branded", platform: str | None = None, limit: int = 40,
+             city: str | None = None) -> list[dict]:
+    rows = [r for r in select_rows(db, imp, brand_type, platform) if (not topic or r.topic == topic) and (not region or r.group == region) and (not outcome or r.outcome == outcome)
+            and (not city or r.city == city)]
     by = defaultdict(list)
     for r in rows:
         by[r.keyword].append(r)
