@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import openpyxl
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from ..models import AiVisImport, AiVisRow
@@ -42,6 +42,18 @@ OUTCOME_OF = {
 BRAND_TYPES = {"non_branded": ["Non-branded"], "metricon_branded": ["Metricon branded"], "competitor_branded": ["Competitor branded"], "all": None}
 REQUIRED = ["Row ID", "Keyword", "AI platform", "Product / topic", "Region", "Brand type", "Excluded", "Metricon mentioned", "Metricon cited", "GJ Gardner mentioned",
             "Carlisle mentioned", "Simonds mentioned", "Opportunity type", "Opportunity score"]
+
+
+FIRST_BRAND_KEYS = [("Metricon", "metricon"), ("G.J. Gardner", "gardner"), ("Carlisle", "carlisle"), ("Simonds", "simonds"), ("Porter Davis", "porter")]
+
+
+def canonical_first(v: Any) -> str | None:
+    """The workbook's 'First tracked brand in answer' as one of our five short names; anything else (blank, 'None', untracked) is None."""
+    t = str(v or "").lower()
+    for name, key in FIRST_BRAND_KEYS:
+        if key in t:
+            return name
+    return None
 
 
 def city_of(keyword: str) -> str | None:
@@ -124,7 +136,8 @@ def parse_workbook(path: str | Path) -> dict:
             metricon_mentioned=_b(g(r, "Metricon mentioned")), metricon_cited=_b(g(r, "Metricon cited")), gj_mentioned=_b(g(r, "GJ Gardner mentioned")),
             carlisle_mentioned=_b(g(r, "Carlisle mentioned")), simonds_mentioned=_b(g(r, "Simonds mentioned")), porter_mentioned=_b(g(r, "Porter Davis mentioned")),
             opportunity_type=g(r, "Opportunity type"), opportunity_score=float(g(r, "Opportunity score", 0) or 0), competitors_named=g(r, "Competitors named"),
-            metricon_urls=g(r, "Metricon URLs cited"), cited_domains=g(r, "Cited domains"), updated_on=_d(g(r, "Updated"))))
+            metricon_urls=g(r, "Metricon URLs cited"), cited_domains=g(r, "Cited domains"), updated_on=_d(g(r, "Updated")),
+            first_brand=canonical_first(g(r, "First tracked brand in answer")), recommendation_intent=_b(g(r, "Recommendation intent", 0))))
     sheets = {n: wb[n] for n in wb.sheetnames}
     out: dict[str, Any] = {"rows": rows, "source_note": None, "published_kpis": {}, "insights": [], "opportunities": [], "narrative": {}, "domains": {}, "untracked": {}, "relevance": {}, "min_rows": 10,
                            "segment_summary": []}
@@ -172,6 +185,9 @@ class Rw:
     mentioned: bool
     cited: bool
     named: dict
+    first: str | None
+    rec: bool
+    has_first: bool
     outcome: str
     score: float
     competitors: str | None
@@ -188,7 +204,7 @@ def _outcome(opp: str | None, mentioned: bool, cited: bool) -> str:
 def to_rw(r: AiVisRow) -> Rw:
     return Rw(r.keyword, r.platform, r.topic, r.region, region_group(r.region), city_of(r.keyword), r.journey, r.brand_type, r.volume_capped, r.primary_row, r.metricon_mentioned, r.metricon_cited,
               {"Metricon": r.metricon_mentioned, "G.J. Gardner": r.gj_mentioned, "Carlisle": r.carlisle_mentioned, "Simonds": r.simonds_mentioned, "Porter Davis": r.porter_mentioned},
-              _outcome(r.opportunity_type, r.metricon_mentioned, r.metricon_cited), r.opportunity_score, r.competitors_named)
+              r.first_brand, bool(r.recommendation_intent), r.first_brand is not None, _outcome(r.opportunity_type, r.metricon_mentioned, r.metricon_cited), r.opportunity_score, r.competitors_named)
 
 
 def agg(rows: list[Rw], min_rows: int) -> dict:
@@ -241,6 +257,36 @@ LIFT_LABEL = {
     "cited_not_named": "AI cites the website but doesn't name Metricon",
     "other": "Mixed",
 }
+
+
+def strength_table(rows: list[Rw], columns: list[str], col_of, min_rows: int) -> dict:
+    """How strongly AI puts each tracked builder forward, by column (category / state / city). This is PROMINENCE - how often a builder is named,
+    named first, and named first when someone asks who to choose - not sentiment: the export carries no answer text to read tone from."""
+    def cell(rs: list[Rw], brand: str) -> dict:
+        n = len(rs)
+        if not n:
+            return {"n": 0}
+        named = sum(1 for r in rs if r.named[brand])
+        first = sum(1 for r in rs if r.first == brand)
+        rec = [r for r in rs if r.rec]
+        return {"n": n, "named": named / n, "first": first / n, "first_when_named": (first / named) if named else None, "low_sample": n < min_rows,
+                "rec_n": len(rec), "rec_first": (sum(1 for r in rec if r.first == brand) / len(rec)) if len(rec) >= min_rows else None}
+    by_col = defaultdict(list)
+    for r in rows:
+        c = col_of(r)
+        if c is not None:
+            by_col[c].append(r)
+    allrows = [r for c in columns for r in by_col.get(c, [])]
+    out = []
+    for b, _ in BRANDS:
+        out.append({"brand": b, "all": cell(allrows, b), "cells": {c: cell(by_col.get(c, []), b) for c in columns}})
+    # who is ahead in each column on 'named first' (ties and thin columns get no leader)
+    leaders = {}
+    for c in columns:
+        n = len(by_col.get(c, []))
+        ranked = sorted(((row["cells"][c].get("first", 0) if row["cells"][c].get("n") else 0, row["brand"]) for row in out), reverse=True)
+        leaders[c] = ranked[0][1] if n >= min_rows and ranked[0][0] > 0 and ranked[0][0] > ranked[1][0] else None
+    return {"columns": [{"key": c, "n": len(by_col.get(c, []))} for c in columns], "brands": out, "leaders": leaders}
 
 
 def overview(db: Session, imp: AiVisImport, brand_type: str = "non_branded", platform: str | None = None) -> dict:
@@ -312,9 +358,19 @@ def overview(db: Session, imp: AiVisImport, brand_type: str = "non_branded", pla
         a = agg(rs, mr)
         by_city.append({"city": c, "state": st, **({"n": 0} if not rs else {"n": a["n"], "rates": a["rates"], "winner": a["winner"], "lead_pts": a["lead_pts"], "cited": a["cited"], "mention": a["mention"],
                                                                          "outcomes": a["outcomes"], "low_sample": a["low_sample"]})})
+    has_first = (imp.schema_version or 1) >= 2
+    topic_cols = [g["topic"] for g in grid if g["all"]["n"] >= mr]
+    strength = ({
+        "available": True,
+        "topic": strength_table(rows, topic_cols, lambda r: r.topic, mr),
+        "state": strength_table(rows, STATES, lambda r: r.group if r.group in STATES else None, mr),
+        "city": strength_table(rows, city_names, lambda r: r.city, mr),
+        "note": "The export has no answer text, so tone ('likely to buy') can't be scored from it. 'Named first' = the builder is the first tracked builder in the AI's answer; "
+                "'in who-to-choose questions' counts only searches phrased as a recommendation request (for example 'best home builders in Melbourne').",
+    } if has_first else {"available": False, "note": "These figures need the answer-position columns. Re-upload the workbook (Admin → Search data) to add them."})
     kpi = {"answers": total["n"], "mention": total["mention"], "cited": total["cited"], "rates": total["rates"], "outcomes": total["outcomes"]}
     return {"empty": False, "filters": {"brand_type": brand_type, "platform": platform}, "kpi": kpi, "grid": grid, "columns": REGION_COLUMNS, "city_grid": city_grid, "city_columns": [{"city": c, "state": st} for c, st in CITIES], "by_city": by_city,
-            "city_note": "Cities are read from the wording of each search (for example 'house designs melbourne'); the workbook has no city column, so searches that name only a suburb or region are not counted here.", "pockets": pockets[:10], "awareness_pockets": awareness,
+            "strength": strength, "city_note": "Cities are read from the wording of each search (for example 'house designs melbourne'); the workbook has no city column, so searches that name only a suburb or region are not counted here.", "pockets": pockets[:10], "awareness_pockets": awareness,
             "platforms": plat, "journey": jr, "by_state": by_state, "outcomes": [{"key": k, "label": lbl} for k, lbl in OUTCOMES], "min_rows": mr,
             "outside_markets": {g: sum(1 for r in rows if r.region == g) for g in OUTSIDE if any(r.region == g for r in rows)}}
 
@@ -367,15 +423,22 @@ def import_workbook(db: Session, path: str | Path, file_name: str | None = None)
     data = Path(path).read_bytes()
     sha = hashlib.sha256(data).hexdigest()
     existing = db.scalar(select(AiVisImport).where(AiVisImport.file_sha256 == sha))
-    if existing is not None:
+    if existing is not None and (existing.schema_version or 1) >= 2:
         return {"created": False, "import_id": existing.id, "rows": existing.row_count}
     parsed = parse_workbook(path)
+    if existing is not None:  # same file imported before the answer-position columns existed: refill its rows in place
+        db.execute(delete(AiVisRow).where(AiVisRow.import_id == existing.id))
+        for i in range(0, len(parsed["rows"]), 1000):
+            db.bulk_insert_mappings(AiVisRow, [{**r, "import_id": existing.id} for r in parsed["rows"][i:i + 1000]])
+        existing.schema_version = 2
+        db.flush()
+        return {"created": False, "upgraded": True, "import_id": existing.id, "rows": len(parsed["rows"]), "checks": existing.checks}
     rows = parsed["rows"]
     dates = [r["updated_on"] for r in rows if r["updated_on"]]
     imp = AiVisImport(file_name=file_name or Path(path).name, file_sha256=sha, source_note=parsed["source_note"], period_start=min(dates) if dates else None, period_end=max(dates) if dates else None,
                       row_count=len(rows), min_rows=parsed["min_rows"], relevance=parsed["relevance"], insights=_jsonable(parsed["insights"]), published_kpis=parsed["published_kpis"],
                       opportunities=_jsonable(parsed["opportunities"]), narrative=_jsonable(parsed["narrative"]), domains=_jsonable(parsed["domains"]), untracked=_jsonable(parsed["untracked"]),
-                      checks=_checks(parsed, rows))
+                      checks=_checks(parsed, rows), schema_version=2)
     db.add(imp)
     db.flush()
     for i in range(0, len(rows), 1000):

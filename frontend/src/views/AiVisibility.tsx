@@ -163,6 +163,69 @@ function NextSteps({ items }: { items: any[] }) {
   );
 }
 
+const MEASURES = [
+  { id: "first", label: "Named first", help: "Share of all answers in which this builder is the FIRST tracked builder the AI names" },
+  { id: "named", label: "Named at all", help: "Share of answers that name this builder anywhere" },
+  { id: "first_when_named", label: "First, when named", help: "When the AI names this builder, how often it is listed first. Shows pull, independent of how often it comes up" },
+  { id: "rec_first", label: "First in who-to-choose questions", help: "Only searches phrased as a recommendation request (e.g. 'best home builders in Melbourne'). Needs at least 10 such answers" },
+] as const;
+type MeasureId = (typeof MEASURES)[number]["id"];
+
+function Strength({ ov }: { ov: any }) {
+  const st = ov.strength;
+  const [by, setBy] = useState<"topic" | "state" | "city">("topic");
+  const [measure, setMeasure] = useState<MeasureId>("first");
+  const [small, setSmall] = useState(false);
+  if (!st?.available) return <Empty><strong>Needs a fresh upload</strong><div className="small">{st?.note}</div></Empty>;
+  const t = st[by];
+  const floor = by === "topic" ? 60 : 0;
+  const keep = t.columns.filter((c: any) => c.n >= floor);
+  const tiny = t.columns.filter((c: any) => c.n < floor);
+  const cols: any[] = small ? [...keep, ...tiny] : keep;
+  const val = (c: any) => (c && c.n ? c[measure] : null);
+  const rank = (col: string) => {
+    const vs = t.brands.map((b: any) => ({ brand: b.brand, v: val(b.cells[col]) })).filter((x: any) => x.v != null);
+    vs.sort((a: any, b: any) => b.v - a.v);
+    const i = vs.findIndex((x: any) => x.brand === "Metricon");
+    return i < 0 || vs[i].v === 0 ? null : 1 + vs.filter((x: any) => x.v > vs[i].v).length;
+  };
+  const cell = (c: any, brand: string, col: string) => {
+    if (!c || !c.n) return <div className="hc none">–</div>;
+    if (c.low_sample) return <div className="hc none low" title={`${brand} · ${col}: only ${c.n} answers`}>n={c.n}</div>;
+    const v = c[measure];
+    if (v == null) return <div className="hc none" title="Too few answers of this kind to read">n/a</div>;
+    const leads = measure === "first" && t.leaders[col] === brand;
+    return <div className={`hc ${bin(measure === "first" ? v * 1.5 : v)}`} style={leads ? { boxShadow: "inset 0 0 0 2px var(--ink)" } : undefined}
+      title={`${brand} · ${col}\nNamed in ${pc(c.named)} of ${c.n} answers; first in ${pc(c.first)}${c.first_when_named != null ? `; first in ${pc(c.first_when_named)} of the answers that name it` : ""}${c.rec_first != null ? `\nFirst in ${pc(c.rec_first)} of ${c.rec_n} who-to-choose answers` : ""}`}>{pc(v)}</div>;
+  };
+  const m = MEASURES.find((x) => x.id === measure)!;
+  return (
+    <div className="stack">
+      <Banner tone="info"><strong>How strongly AI puts each builder forward – prominence, not sentiment.</strong> {st.note}</Banner>
+      <section className="card">
+        <div className="row between" style={{ alignItems: "flex-start" }}>
+          <div><h3 style={{ margin: 0 }}>Overall scoreboard</h3><p className="small muted" style={{ margin: "2px 0 0" }}>All tracked builders across every answer in the current view.</p></div></div>
+        <div className="tablewrap" style={{ marginTop: 8 }}><table><thead><tr><th>Builder</th><th className="r">Named at all</th><th className="r">Named first</th><th className="r">First, when named<Help text={MEASURES[2].help} /></th><th className="r">First in who-to-choose questions<Help text={MEASURES[3].help} /></th></tr></thead><tbody>
+          {t.brands.map((b: any) => <tr key={b.brand} className={b.brand === "Metricon" ? "own" : ""}><td><b>{b.brand}</b></td><td className="r num">{pc(b.all.named)}</td><td className="r num"><b>{pc(b.all.first)}</b></td><td className="r num">{pc(b.all.first_when_named)}</td><td className="r num">{b.all.rec_first != null ? pc(b.all.rec_first) : <span className="faint">n/a</span>}</td></tr>)}</tbody></table></div>
+      </section>
+      <section className="card">
+        <div className="row between" style={{ alignItems: "flex-start" }}>
+          <div><h3 style={{ margin: 0 }}>Each builder against each {by === "topic" ? "category" : by}</h3><p className="small muted" style={{ margin: "2px 0 0" }}>{m.help}. A black outline marks the builder AI names first most often in that column.</p></div>
+          <div className="stack" style={{ gap: 6, alignItems: "flex-end" }}>
+            <Segmented label="Group by" value={by} onChange={setBy} items={[{ id: "topic", label: "By category" }, { id: "state", label: "By state" }, { id: "city", label: "By city" }]} />
+            <label className="field" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}><span className="small muted">Measure</span><select value={measure} onChange={(e) => setMeasure(e.target.value as MeasureId)}>{MEASURES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select></label></div></div>
+        <div className="tablewrap" style={{ border: 0, marginTop: 8 }}><table className="heat"><thead><tr><th className="rowh">Builder</th>{cols.map((c: any) => <th key={c.key}>{c.key}<div className="tiny faint" style={{ fontWeight: 500 }}>{nf(c.n)} answers</div></th>)}<th>All</th></tr></thead>
+          <tbody>{t.brands.map((b: any) => (
+            <tr key={b.brand}><td className="rowh" style={b.brand === "Metricon" ? { color: "var(--s1)" } : undefined}>{b.brand}</td>{cols.map((c: any) => <td key={c.key}>{cell(b.cells[c.key], b.brand, c.key)}</td>)}<td>{cell(b.all, b.brand, "All")}</td></tr>))}
+            <tr><td className="rowh small muted">Metricon’s rank</td>{cols.map((c: any) => { const r = rank(c.key); return <td key={c.key} className="small muted" style={{ textAlign: "center" }}>{r ? `#${r} of 5` : "–"}</td>; })}<td /></tr></tbody></table></div>
+        {tiny.length > 0 && <button className="btn sm" onClick={() => setSmall(!small)}>{small ? "Hide" : "Show"} {tiny.length} small categories (under {floor} answers)</button>}
+        <div className="legendrow"><span>Share:</span>{[["h0", "low"], ["h1", ""], ["h2", ""], ["h3", ""], ["h4", "high"]].map(([c, t2]) => <span key={c}><i className={`sw hc ${c}`} style={{ display: "inline-block", minHeight: 14 }} />{t2}</span>)}<span><i className="sw" style={{ border: "1px dashed var(--ink-3)" }} />under {ov.min_rows} answers</span><span><i className="sw" style={{ boxShadow: "inset 0 0 0 2px var(--ink)" }} />leads the column</span></div>
+        <p className="tiny faint" style={{ margin: "6px 0 0" }}>Porter Davis is tracked but rarely appears in AI answers. Builders AI names that aren’t tracked (Coral Homes, Hickinbotham, Clarendon…) are on the Platforms, sources & rivals tab.{by === "city" ? ` ${ov.city_note}` : ""}</p>
+      </section>
+    </div>
+  );
+}
+
 function shortAction(a: string) {
   if (a.startsWith("Named but not linked")) return "Strengthen the landing page AI already names";
   if (a.startsWith("Build/upgrade")) return "Build or upgrade a page that answers this; earn third-party citations";
@@ -245,7 +308,7 @@ function Reputation({ n }: { n: any }) {
 }
 
 export default function AiVisibility() {
-  const [tab, setTab] = useState<"overview" | "next" | "opps" | "sources" | "rep">("overview");
+  const [tab, setTab] = useState<"overview" | "strength" | "next" | "opps" | "sources" | "rep">("overview");
   const [brand, setBrand] = useState("non_branded");
   const [platform, setPlatform] = useState("");
   const [drill, setDrill] = useState<Drill | null>(null);
@@ -264,7 +327,7 @@ export default function AiVisibility() {
         <div className="row"><label className="field">Who’s asking<select value={brand} onChange={(e) => setBrand(e.target.value)}>{BRAND_TYPES.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}</select></label>
           <label className="field">AI platform<select value={platform} onChange={(e) => setPlatform(e.target.value)}><option value="">All platforms</option>{d.data.platform_options.map((p: string) => <option key={p}>{p}</option>)}</select></label></div></div>
       <Banner tone="info"><strong>Draft data.</strong> {im.source_note ? im.source_note : "Source: Ahrefs Brand Radar export."} Answers {fmtDate(im.period_start)} – {fmtDate(im.period_end)} · {nf(im.rows)} answers · imported {fmtDateTime(im.imported_at)}.{failed.length > 0 && <> <b>Cross-check warning:</b> {failed.map((c: any) => `${c.check} (${c.detail})`).join("; ")}.</>}</Banner>
-      <Tabs value={tab} onChange={setTab} items={[{ id: "overview", label: "Overview" }, { id: "next", label: "Recommended next steps" }, { id: "opps", label: "Search opportunities" }, { id: "sources", label: "Platforms, sources & rivals" }, { id: "rep", label: "Reputation" }]} />
+      <Tabs value={tab} onChange={setTab} items={[{ id: "overview", label: "Overview" }, { id: "strength", label: "Builder comparison" }, { id: "next", label: "Recommended next steps" }, { id: "opps", label: "Search opportunities" }, { id: "sources", label: "Platforms, sources & rivals" }, { id: "rep", label: "Reputation" }]} />
       {ov.empty && tab === "overview" && <Empty>No answers match these filters.</Empty>}
       {tab === "overview" && !ov.empty && <div className="stack">
         <div className="grid g4">
@@ -278,6 +341,7 @@ export default function AiVisibility() {
         <Outcomes ov={ov} onPick={setDrill} />
         <Priorities items={d.data.insights} onMore={() => setTab("next")} />
       </div>}
+      {tab === "strength" && !ov.empty && <Strength ov={ov} />}
       {tab === "next" && <NextSteps items={d.data.insights} />}
       {tab === "opps" && <Opportunities rows={d.data.opportunities} onPick={setDrill} />}
       {tab === "sources" && !ov.empty && <Sources ov={ov} domains={d.data.domains} untracked={d.data.untracked} />}

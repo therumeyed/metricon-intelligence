@@ -821,6 +821,7 @@ class AiVisImport(Base):
     domains: Mapped[dict] = mapped_column(JSONB, default=dict)
     untracked: Mapped[dict] = mapped_column(JSONB, default=dict)
     checks: Mapped[list] = mapped_column(JSONB, default=list)
+    schema_version: Mapped[int] = mapped_column(Integer, default=2)  # 2 = rows carry first-named brand and recommendation intent
 
 
 class AiVisRow(Base):
@@ -855,3 +856,5 @@ class AiVisRow(Base):
     metricon_urls: Mapped[str | None] = mapped_column(Text)
     cited_domains: Mapped[str | None] = mapped_column(Text)
     updated_on: Mapped[date | None] = mapped_column(Date)
+    first_brand: Mapped[str | None] = mapped_column(String(30))  # which tracked builder the answer names first (canonical short name), None when no tracked builder is named
+    recommendation_intent: Mapped[bool] = mapped_column(Boolean, default=False)  # a "who should I choose / best builders" style search

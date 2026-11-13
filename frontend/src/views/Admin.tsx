@@ -187,7 +187,7 @@ function Search() {
   return (
     <div className="stack">
       <section className="card"><h3>AI search visibility (Ahrefs Brand Radar workbook)</h3>
-        <p className="small muted">The segmented workbook with the Data sheet plus the insight sheets. Every answer row is kept; figures are recalculated from the rows and cross-checked against the workbook's own. Re-uploading the same file changes nothing; a new export becomes the current one and the old stays on file.</p>
+        <p className="small muted">The segmented workbook with the Data sheet plus the insight sheets. Every answer row is kept; figures are recalculated from the rows and cross-checked against the workbook's own. Re-uploading the same file changes nothing (except to fill in newer columns on an earlier import); a new export becomes the current one and the old stays on file.</p>
         <div className="row" style={{ alignItems: "flex-end" }}><input type="file" accept=".xlsx" onChange={(e) => setVfile(e.target.files?.[0] ?? null)} /><button className="btn primary" disabled={!vfile} onClick={uploadVis}>Import</button></div>
         <div className="small muted" style={{ marginTop: 6 }}>{vmsg}{vimport.data?.imported && <> Current: {vimport.data.import.file_name} – {vimport.data.import.rows.toLocaleString("en-AU")} answers, imported {fmtDateTime(vimport.data.import.imported_at)}.</>}</div></section>
       <section className="card"><h3>Import a Search Console export</h3>

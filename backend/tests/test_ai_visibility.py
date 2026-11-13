@@ -11,13 +11,15 @@ from app.services import ai_visibility as V
 H = {"X-Requested-With": "metricon-ui"}
 COLS = ["Row ID", "Keyword", "AI platform", "Query format", "Product / topic", "Region", "Journey stage", "Brand type", "Primary intent", "Volume", "Volume (capped)", "Primary keyword row", "Excluded",
         "Metricon mentioned", "Metricon cited", "GJ Gardner mentioned", "Carlisle mentioned", "Simonds mentioned", "Porter Davis mentioned", "Opportunity type", "Opportunity score",
-        "Competitors named", "Metricon URLs cited", "Cited domains", "Updated"]
+        "Competitors named", "Metricon URLs cited", "Cited domains", "Updated", "First tracked brand in answer", "Recommendation intent"]
 DEF, CIT, RIV, WHITE, NOT = "Defend – mentioned & cited", "Citation gap – named, not cited", "Competitor gap – rival named, Metricon absent", "Whitespace – no builder named", "Brand narrative – manage"
 
 
-def row(i, kw, topic, region, m, c, gj=0, car=0, sim=0, opp=None, plat="Google AI Overviews", btype="Non-branded", vol=100, score=10.0, excluded=0, journey="Conversion", upd="2026-10-01"):
+def row(i, kw, topic, region, m, c, gj=0, car=0, sim=0, opp=None, plat="Google AI Overviews", btype="Non-branded", vol=100, score=10.0, excluded=0, journey="Conversion", upd="2026-10-01", first=None, rec=0):
     opp = opp or (DEF if m and c else CIT if m else RIV if (gj or car or sim) else WHITE)
-    return [i, kw, plat, "Search keyword", topic, region, journey, btype, "Commercial", vol, vol, 1, excluded, m, c, gj, car, sim, 0, opp, score, "G.J. Gardner Homes" if gj else None, None, None, upd]
+    if first is None:  # default: Metricon first when named, else the first rival named, else nobody
+        first = "Metricon" if m else "G.J. Gardner Homes" if gj else "Carlisle Homes" if car else "Simonds Homes" if sim else "None"
+    return [i, kw, plat, "Search keyword", topic, region, journey, btype, "Commercial", vol, vol, 1, excluded, m, c, gj, car, sim, 0, opp, score, "G.J. Gardner Homes" if gj else None, None, None, upd, first, rec]
 
 
 def make_rows():
@@ -281,3 +283,84 @@ def test_keywords_can_be_drilled_by_city(seeded, tmp_path):
     ks = V.keywords(seeded, i, "Home designs & floor plans", None, None, city="Sydney")
     assert [k["keyword"] for k in ks] == ["house designs sydney"] and ks[0]["platforms"] == 14
     assert V.keywords(seeded, i, None, None, None, city="Brisbane")[0]["keyword"] == "house designs brisbane"
+
+
+def strength_rows():
+    r, i = [], 0
+
+    def add(n, topic, region, m, c, first=None, rec=0, gj=0, car=0, sim=0):
+        nonlocal i
+        for _ in range(n):
+            i += 1
+            r.append(row(i, f"kw {i}", topic, region, m, c, gj=gj, car=car, sim=sim, first=first, rec=rec))
+    # Home designs: Metricon named in 20 answers, first in 15; GJ named in 12 (first in 5 of its own... Metricon first in the shared ones)
+    add(15, "Home designs & floor plans", "VIC", 1, 1, first="Metricon", gj=1)
+    add(5, "Home designs & floor plans", "VIC", 1, 0, first="G.J. Gardner Homes", gj=1)       # both named, GJ listed first
+    add(4, "Home designs & floor plans", "VIC", 0, 0, first="Carlisle Homes", car=1)
+    add(12, "Display homes", "QLD", 1, 1, first="Metricon", rec=1)                           # recommendation-style searches
+    add(2, "Display homes", "QLD", 0, 0, first="Simonds Homes", sim=1, rec=1)
+    return r
+
+
+def make_strength(seeded, tmp_path):
+    p = tmp_path / "s.xlsx"
+    make_workbook(p, strength_rows())
+    i = seeded.get(AiVisImport, V.import_workbook(seeded, p)["import_id"])
+    seeded.commit()
+    return i
+
+
+def test_first_named_brand_is_normalised_to_the_five_tracked_names():
+    assert V.canonical_first("G.J. Gardner Homes") == "G.J. Gardner" and V.canonical_first("Carlisle Homes") == "Carlisle" and V.canonical_first("Metricon") == "Metricon"
+    assert V.canonical_first("Simonds Homes") == "Simonds" and V.canonical_first("Porter Davis Homes") == "Porter Davis"
+    assert V.canonical_first("None") is None and V.canonical_first(None) is None and V.canonical_first("Henley") is None
+
+
+def test_strength_table_scores_each_brand_per_category_from_position_not_sentiment(seeded, tmp_path):
+    i = make_strength(seeded, tmp_path)
+    st = V.overview(seeded, i)["strength"]
+    assert st["available"] and "no answer text" in st["note"]
+    t = st["topic"]
+    assert [c["key"] for c in t["columns"]] == ["Home designs & floor plans", "Display homes"]
+    me = next(b for b in t["brands"] if b["brand"] == "Metricon")
+    d = me["cells"]["Home designs & floor plans"]
+    assert d["n"] == 24 and round(d["named"], 3) == round(20 / 24, 3) and round(d["first"], 3) == round(15 / 24, 3) and round(d["first_when_named"], 3) == 0.75
+    gj = next(b for b in t["brands"] if b["brand"] == "G.J. Gardner")["cells"]["Home designs & floor plans"]
+    assert round(gj["named"], 3) == round(20 / 24, 3) and round(gj["first"], 3) == round(5 / 24, 3)  # named as often as Metricon but listed first far less
+    assert t["leaders"]["Home designs & floor plans"] == "Metricon"
+
+
+def test_who_to_choose_figure_uses_only_recommendation_style_searches_and_hides_thin_samples(seeded, tmp_path):
+    i = make_strength(seeded, tmp_path)
+    t = V.overview(seeded, i)["strength"]["topic"]
+    me = next(b for b in t["brands"] if b["brand"] == "Metricon")
+    disp = me["cells"]["Display homes"]
+    assert disp["rec_n"] == 14 and round(disp["rec_first"], 3) == round(12 / 14, 3)
+    assert me["cells"]["Home designs & floor plans"]["rec_first"] is None and me["cells"]["Home designs & floor plans"]["rec_n"] == 0  # no recommendation-style searches there: no number, not a zero
+    assert next(b for b in t["brands"] if b["brand"] == "Porter Davis")["cells"]["Display homes"]["first"] == 0  # tracked, never first: a real zero
+
+
+def test_strength_by_state_and_city_use_the_same_logic(seeded, tmp_path):
+    i = make_strength(seeded, tmp_path)
+    st = V.overview(seeded, i)["strength"]
+    assert [c["key"] for c in st["state"]["columns"]] == ["VIC", "NSW", "QLD", "SA"] and [c["key"] for c in st["city"]["columns"]][:2] == ["Melbourne", "Sydney"]
+    me = next(b for b in st["state"]["brands"] if b["brand"] == "Metricon")
+    assert me["cells"]["VIC"]["n"] == 24 and me["cells"]["NSW"] == {"n": 0}
+
+
+def test_an_older_import_asks_for_a_reupload_and_a_reupload_of_the_same_file_fills_the_new_columns(seeded, tmp_path):
+    p = tmp_path / "s.xlsx"
+    make_workbook(p, strength_rows())
+    a = V.import_workbook(seeded, p)
+    imp = seeded.get(AiVisImport, a["import_id"])
+    imp.schema_version = 1
+    seeded.execute(AiVisRow.__table__.update().values(first_brand=None, recommendation_intent=False))
+    seeded.commit()
+    seeded.refresh(imp)
+    assert V.overview(seeded, imp)["strength"]["available"] is False
+    again = V.import_workbook(seeded, p)
+    seeded.commit()
+    assert again["upgraded"] and again["import_id"] == a["import_id"] and seeded.scalar(select(func.count()).select_from(AiVisImport)) == 1
+    seeded.refresh(imp)
+    assert V.overview(seeded, imp)["strength"]["available"] is True and seeded.scalar(select(func.count()).select_from(AiVisRow)) == 24 + 14
+    assert not V.import_workbook(seeded, p)["created"]  # and now it is a plain no-op
